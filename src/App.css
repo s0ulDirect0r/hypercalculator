@@ -251,6 +251,51 @@
   overflow-wrap: anywhere;
 }
 
+.inspect-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid rgba(238, 211, 232, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.inspect-control label {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(247, 243, 245, 0.52);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.inspect-control label strong {
+  color: #6ee7ff;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.inspect-control input[type='range'] {
+  width: 100%;
+  accent-color: #6ee7ff;
+}
+
+.inspect-control input[type='number'] {
+  min-width: 0;
+  border: 1px solid rgba(238, 211, 232, 0.16);
+  border-radius: 8px;
+  color: #f7f3f5;
+  background: rgba(0, 0, 0, 0.18);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+}
+
 .history-heading {
   margin-top: 10px;
 }
@@ -310,6 +355,78 @@
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.viewport-controls {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(238, 211, 232, 0.12);
+  border-radius: 8px;
+  background: rgba(20, 18, 23, 0.72);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  z-index: 2;
+}
+
+.viewport-controls button {
+  min-width: 32px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid rgba(238, 211, 232, 0.12);
+  border-radius: 7px;
+  color: rgba(247, 243, 245, 0.76);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.viewport-controls button:hover,
+.viewport-controls button.active {
+  border-color: rgba(110, 231, 255, 0.5);
+  color: #ffffff;
+  background: rgba(54, 177, 221, 0.26);
+}
+
+.viewport-inspector {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 10px;
+  min-width: 156px;
+  padding: 10px 12px;
+  border: 1px solid rgba(238, 211, 232, 0.12);
+  border-radius: 8px;
+  background: rgba(20, 18, 23, 0.72);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+}
+
+.viewport-inspector span {
+  color: rgba(247, 243, 245, 0.54);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.viewport-inspector strong {
+  color: #f7f3f5;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: right;
+}
+
+.viewport-inspector strong:first-of-type {
+  color: #6ee7ff;
 }
 
 .calculator-deck {

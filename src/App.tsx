@@ -6,10 +6,13 @@ import {
   Calculator,
   Delete,
   FunctionSquare,
+  Hash,
   History,
   LayoutPanelLeft,
   RotateCcw,
   Sparkles,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import * as THREE from 'three'
 import './App.css'
@@ -64,7 +67,6 @@ type MathAnalysis = {
   activeExpression: string
   activeRootAnalysis: RootAnalysis
   complex: ComplexParts | null
-  derivativeAtOne: number | null
   integralArea: number | null
   kind: MathObjectKind
   rootAnalysis: RootAnalysis
@@ -723,6 +725,20 @@ const getFunctionResultLabel = (analysisMode: AnalysisMode) => {
   return 'function'
 }
 
+const getInspectedFunctionLabel = (analysisMode: AnalysisMode, x: number) => {
+  const formattedX = formatValue(x)
+
+  if (analysisMode === 'derivative') {
+    return `f'(${formattedX})`
+  }
+
+  if (analysisMode === 'integral') {
+    return `F(${formattedX})`
+  }
+
+  return `f(${formattedX})`
+}
+
 const makeAnalysis = (
   expression: string,
   angleMode: AngleMode,
@@ -749,11 +765,6 @@ const makeAnalysis = (
       ? analyzeRoots(activeExpression, angleMode)
       : { kind: 'not-function', roots: [] },
     complex,
-    derivativeAtOne: isFunction
-      ? symbolicDerivative
-        ? evaluateRawForPoint(symbolicDerivative, angleMode, 1)
-        : derivativeAt(expression, angleMode, 1)
-      : null,
     integralArea: isFunction ? integrate(expression, angleMode, -2, 2) : null,
     kind,
     rootAnalysis,
@@ -932,23 +943,53 @@ const appendToken = (expression: string, token: string) => {
   return `${expression}${token}`
 }
 
-const toGraphPoint = (x: number, y: number) =>
-  new THREE.Vector3(x * 0.55, clamp(y, -8, 8) * 0.55, 0)
+const GRAPH_SCALE = 0.55
+const MAX_GRAPH_EXTENT = 50
+
+const toGraphPoint = (x: number, y: number, minY = -8, maxY = 8) =>
+  new THREE.Vector3(x * GRAPH_SCALE, clamp(y, minY, maxY) * GRAPH_SCALE, 0)
+
+const getTickStep = (range: number) => {
+  if (range <= 12) {
+    return 1
+  }
+
+  if (range <= 28) {
+    return 2
+  }
+
+  if (range <= 70) {
+    return 5
+  }
+
+  return 10
+}
+
+const formatAxisValue = (value: number) =>
+  Math.abs(value) < 0.000001 ? '0' : formatValue(value)
 
 function MathViewport({
   analysisMode,
   angleMode,
+  axisValuesVisible,
   expression,
+  graphZoom,
+  inspectX,
   mathAnalysis,
   numericValue,
+  onInspectXChange,
   orbitEnabled,
   visualizationMode,
 }: {
   analysisMode: AnalysisMode
   angleMode: AngleMode
+  axisValuesVisible: boolean
   expression: string
+  graphZoom: number
+  inspectX: number
   mathAnalysis: MathAnalysis
   numericValue: number | null
+  onInspectXChange: (value: number) => void
   orbitEnabled: boolean
   visualizationMode: VisualizationMode
 }) {
@@ -971,13 +1012,18 @@ function MathViewport({
     const camera = use2D
       ? new THREE.OrthographicCamera(-6.2 * aspect, 6.2 * aspect, 5.4, -5.4, 0.1, 100)
       : new THREE.PerspectiveCamera(45, aspect, 0.1, 100)
+    if (camera instanceof THREE.OrthographicCamera) {
+      camera.zoom = graphZoom
+    }
 
     camera.position.set(0, use2D ? 0 : 3.2, use2D ? 10 : 8)
     camera.lookAt(0, 0, 0)
+    camera.updateProjectionMatrix()
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(width, height)
+    renderer.domElement.style.cursor = mathAnalysis.kind === 'function2d' ? 'crosshair' : 'default'
     mount.appendChild(renderer.domElement)
 
     const group = new THREE.Group()
@@ -1016,21 +1062,161 @@ function MathViewport({
       return mesh
     }
 
-    const render2DGrid = () => {
-      for (let tick = -10; tick <= 10; tick += 1) {
-        const x = tick * 0.55
-        const y = tick * 0.55
-        line([new THREE.Vector3(x, -4.4, 0), new THREE.Vector3(x, 4.4, 0)], 0x3a2f3b, 0.7)
-        line([new THREE.Vector3(-5.5, y, 0), new THREE.Vector3(5.5, y, 0)], 0x3a2f3b, 0.7)
+    const getVisibleMathBounds = () => {
+      if (!(camera instanceof THREE.OrthographicCamera)) {
+        return {
+          maxX: 10,
+          maxY: 8,
+          minX: -10,
+          minY: -8,
+        }
       }
 
-      line([new THREE.Vector3(-5.8, 0, 0), new THREE.Vector3(5.8, 0, 0)], 0x8f6f8e, 0.9)
-      line([new THREE.Vector3(0, -4.6, 0), new THREE.Vector3(0, 4.6, 0)], 0x8f6f8e, 0.9)
+      const minX = clamp(camera.left / camera.zoom / GRAPH_SCALE, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT)
+      const maxX = clamp(camera.right / camera.zoom / GRAPH_SCALE, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT)
+      const minY = clamp(camera.bottom / camera.zoom / GRAPH_SCALE, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT)
+      const maxY = clamp(camera.top / camera.zoom / GRAPH_SCALE, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT)
+
+      return { maxX, maxY, minX, minY }
+    }
+
+    const makeTextSprite = (text: string, color = '#d8cfd8') => {
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')
+      if (!context) {
+        return null
+      }
+
+      const fontSize = 32
+      context.font = `600 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`
+      const metrics = context.measureText(text)
+      const paddingX = 18
+      const paddingY = 12
+      canvas.width = Math.ceil(metrics.width + paddingX * 2)
+      canvas.height = fontSize + paddingY * 2
+      context.font = `600 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillStyle = color
+      context.fillText(text, canvas.width / 2, canvas.height / 2)
+
+      const texture = new THREE.CanvasTexture(canvas)
+      texture.colorSpace = THREE.SRGBColorSpace
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          depthTest: false,
+          opacity: 0.92,
+        }),
+      )
+      const height = 0.34 / graphZoom
+      sprite.scale.set((canvas.width / canvas.height) * height, height, 1)
+      group.add(sprite)
+      return sprite
+    }
+
+    const render2DGrid = () => {
+      const bounds = getVisibleMathBounds()
+      const xRange = bounds.maxX - bounds.minX
+      const yRange = bounds.maxY - bounds.minY
+      const tickStep = Math.max(getTickStep(Math.max(xRange, yRange)), 1)
+      const firstXTick = Math.ceil(bounds.minX / tickStep) * tickStep
+      const firstYTick = Math.ceil(bounds.minY / tickStep) * tickStep
+      const axisY = clamp(0, bounds.minY, bounds.maxY)
+      const axisX = clamp(0, bounds.minX, bounds.maxX)
+      const labelOffset = 0.58 / graphZoom
+      const gridColor = 0x342b36
+      const majorGridColor = 0x4b3d4b
+      const axisMaterial = new THREE.MeshBasicMaterial({
+        color: 0xd8cfd8,
+        transparent: true,
+        opacity: 0.88,
+      })
+      const tickMaterial = new THREE.MeshBasicMaterial({
+        color: 0xd8cfd8,
+        transparent: true,
+        opacity: 0.58,
+      })
+      const originMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfff2c9,
+        transparent: true,
+        opacity: 0.94,
+      })
+
+      for (let tick = firstXTick; tick <= bounds.maxX; tick += tickStep) {
+        const x = tick * GRAPH_SCALE
+        const isMajor = Math.abs(tick) % (tickStep * 2) === 0
+        const color = isMajor ? majorGridColor : gridColor
+        const opacity = isMajor ? 0.72 : 0.52
+        line(
+          [
+            new THREE.Vector3(x, bounds.minY * GRAPH_SCALE, -0.02),
+            new THREE.Vector3(x, bounds.maxY * GRAPH_SCALE, -0.02),
+          ],
+          color,
+          opacity,
+        )
+
+        if (Math.abs(tick) > 0.000001) {
+          const tickLength = isMajor ? 0.16 : 0.1
+          meshBox(0.018 / graphZoom, tickLength / graphZoom, 0.02, tickMaterial, new THREE.Vector3(x, axisY * GRAPH_SCALE, 0.02))
+        }
+
+        if (axisValuesVisible && Math.abs(tick) > 0.000001) {
+          const label = makeTextSprite(formatAxisValue(tick), '#d8cfd8')
+          if (label) {
+            label.position.set(x, (axisY - labelOffset) * GRAPH_SCALE, 0.08)
+          }
+        }
+      }
+
+      for (let tick = firstYTick; tick <= bounds.maxY; tick += tickStep) {
+        const y = tick * GRAPH_SCALE
+        const isMajor = Math.abs(tick) % (tickStep * 2) === 0
+        const color = isMajor ? majorGridColor : gridColor
+        const opacity = isMajor ? 0.72 : 0.52
+        line(
+          [
+            new THREE.Vector3(bounds.minX * GRAPH_SCALE, y, -0.02),
+            new THREE.Vector3(bounds.maxX * GRAPH_SCALE, y, -0.02),
+          ],
+          color,
+          opacity,
+        )
+
+        if (Math.abs(tick) > 0.000001) {
+          const tickLength = isMajor ? 0.16 : 0.1
+          meshBox(tickLength / graphZoom, 0.018 / graphZoom, 0.02, tickMaterial, new THREE.Vector3(axisX * GRAPH_SCALE, y, 0.02))
+        }
+
+        if (axisValuesVisible && Math.abs(tick) > 0.000001) {
+          const label = makeTextSprite(formatAxisValue(tick), '#d8cfd8')
+          if (label) {
+            label.position.set((axisX + labelOffset) * GRAPH_SCALE, y, 0.08)
+          }
+        }
+      }
+
+      meshBox(xRange * GRAPH_SCALE, 0.032 / graphZoom, 0.03, axisMaterial, new THREE.Vector3(0, axisY * GRAPH_SCALE, 0.025))
+      meshBox(0.032 / graphZoom, yRange * GRAPH_SCALE, 0.03, axisMaterial, new THREE.Vector3(axisX * GRAPH_SCALE, 0, 0.025))
+
+      const origin = new THREE.Mesh(new THREE.CircleGeometry(0.08, 28), originMaterial)
+      origin.position.set(0, 0, 0.06)
+      group.add(origin)
+
+      if (axisValuesVisible) {
+        const originLabel = makeTextSprite('0', '#fff2c9')
+        if (originLabel) {
+          originLabel.position.set((axisX + labelOffset) * GRAPH_SCALE, (axisY - labelOffset) * GRAPH_SCALE, 0.09)
+        }
+      }
     }
 
     if (mathAnalysis.kind === 'function2d') {
       render2DGrid()
 
+      const bounds = getVisibleMathBounds()
       const sourceExpression = expression.trim() || '0'
       const activeExpression = mathAnalysis.activeExpression.trim() || sourceExpression
       const hasTransform = activeExpression !== sourceExpression
@@ -1038,10 +1224,10 @@ function MathViewport({
         const points: THREE.Vector3[] = []
 
         for (let index = 0; index <= 420; index += 1) {
-          const x = -10 + (20 * index) / 420
+          const x = bounds.minX + ((bounds.maxX - bounds.minX) * index) / 420
           const y = evaluateForPoint(curveExpression, angleMode, x)
           if (y !== null) {
-            points.push(toGraphPoint(x, y))
+            points.push(toGraphPoint(x, y, bounds.minY, bounds.maxY))
           }
         }
 
@@ -1057,17 +1243,54 @@ function MathViewport({
 
       const activePoints = buildCurvePoints(activeExpression)
       if (activePoints.length > 1) {
+        const activeYValues = activePoints.map((point) => point.y)
+        const activeMinY = Math.min(...activeYValues)
+        const activeMaxY = Math.max(...activeYValues)
+        const isFlatActiveCurve = activeMaxY - activeMinY < 0.025
+        if (isFlatActiveCurve) {
+          meshBox(
+            (bounds.maxX - bounds.minX) * GRAPH_SCALE,
+            0.07 / graphZoom,
+            0.035,
+            new THREE.MeshBasicMaterial({
+              color: 0x6ee7ff,
+              transparent: true,
+              opacity: 0.78,
+            }),
+            new THREE.Vector3(((bounds.minX + bounds.maxX) / 2) * GRAPH_SCALE, activePoints[0].y, 0.045),
+          )
+        }
         line(activePoints, 0x6ee7ff, 1)
       }
 
+      const inspectedY = evaluateForPoint(activeExpression, angleMode, inspectX)
+      if (inspectedY !== null) {
+        line(
+          [
+            toGraphPoint(inspectX, bounds.minY, bounds.minY, bounds.maxY).setZ(0.01),
+            toGraphPoint(inspectX, bounds.maxY, bounds.minY, bounds.maxY).setZ(0.01),
+          ],
+          0xfff2c9,
+          0.28,
+        )
+
+        const inspectMarker = new THREE.Mesh(
+          new THREE.CircleGeometry(0.13, 32),
+          new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
+        )
+        inspectMarker.position.copy(toGraphPoint(inspectX, inspectedY, bounds.minY, bounds.maxY))
+        inspectMarker.position.z = 0.07
+        group.add(inspectMarker)
+      }
+
       if (analysisMode === 'integral') {
-        const areaPoints: THREE.Vector3[] = [toGraphPoint(-2, 0)]
+        const areaPoints: THREE.Vector3[] = [toGraphPoint(-2, 0, bounds.minY, bounds.maxY)]
         for (let index = 0; index <= 120; index += 1) {
           const x = -2 + (4 * index) / 120
           const y = evaluateForPoint(sourceExpression, angleMode, x)
-          areaPoints.push(toGraphPoint(x, y ?? 0))
+          areaPoints.push(toGraphPoint(x, y ?? 0, bounds.minY, bounds.maxY))
         }
-        areaPoints.push(toGraphPoint(2, 0))
+        areaPoints.push(toGraphPoint(2, 0, bounds.minY, bounds.maxY))
 
         const shape = new THREE.Shape(areaPoints.map((point) => new THREE.Vector2(point.x, point.y)))
         const area = new THREE.Mesh(
@@ -1083,30 +1306,15 @@ function MathViewport({
         group.add(area)
       }
 
-      if (analysisMode === 'derivative') {
-        const x0 = 1
-        const y0 = evaluateForPoint(activeExpression, angleMode, x0)
-
-        if (y0 !== null) {
-          const derivativeMarker = new THREE.Mesh(
-            new THREE.CircleGeometry(0.12, 32),
-            new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
-          )
-          derivativeMarker.position.copy(toGraphPoint(x0, y0))
-          derivativeMarker.position.z = 0.05
-          group.add(derivativeMarker)
-        }
-      }
-
       if (mathAnalysis.activeRootAnalysis.kind === 'roots') {
         mathAnalysis.activeRootAnalysis.roots
-          .filter((root) => root >= -10 && root <= 10)
+          .filter((root) => root >= bounds.minX && root <= bounds.maxX)
           .forEach((root) => {
             const marker = new THREE.Mesh(
               new THREE.CircleGeometry(0.13, 32),
               new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
             )
-            marker.position.copy(toGraphPoint(root, 0))
+            marker.position.copy(toGraphPoint(root, 0, bounds.minY, bounds.maxY))
             marker.position.z = 0.06
             group.add(marker)
           })
@@ -1357,6 +1565,44 @@ function MathViewport({
     })
     resizeObserver.observe(mount)
 
+    let isInspecting = false
+    const setInspectXFromPointer = (event: PointerEvent) => {
+      if (mathAnalysis.kind !== 'function2d' || !(camera instanceof THREE.OrthographicCamera)) {
+        return
+      }
+
+      const rect = renderer.domElement.getBoundingClientRect()
+      const bounds = getVisibleMathBounds()
+      const percentX = clamp((event.clientX - rect.left) / Math.max(rect.width, 1), 0, 1)
+      const nextX = Number((bounds.minX + percentX * (bounds.maxX - bounds.minX)).toFixed(2))
+      onInspectXChange(nextX)
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      isInspecting = true
+      renderer.domElement.setPointerCapture(event.pointerId)
+      setInspectXFromPointer(event)
+    }
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!isInspecting) {
+        return
+      }
+
+      setInspectXFromPointer(event)
+    }
+    const handlePointerUp = (event: PointerEvent) => {
+      isInspecting = false
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId)
+      }
+    }
+
+    if (mathAnalysis.kind === 'function2d') {
+      renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+      renderer.domElement.addEventListener('pointermove', handlePointerMove)
+      renderer.domElement.addEventListener('pointerup', handlePointerUp)
+      renderer.domElement.addEventListener('pointercancel', handlePointerUp)
+    }
+
     let animationFrame = 0
     const animate = () => {
       animationFrame = requestAnimationFrame(animate)
@@ -1371,6 +1617,10 @@ function MathViewport({
     return () => {
       cancelAnimationFrame(animationFrame)
       resizeObserver.disconnect()
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
+      renderer.domElement.removeEventListener('pointermove', handlePointerMove)
+      renderer.domElement.removeEventListener('pointerup', handlePointerUp)
+      renderer.domElement.removeEventListener('pointercancel', handlePointerUp)
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
           object.geometry.dispose()
@@ -1379,6 +1629,9 @@ function MathViewport({
           } else {
             object.material.dispose()
           }
+        } else if (object instanceof THREE.Sprite) {
+          object.material.map?.dispose()
+          object.material.dispose()
         }
       })
       renderer.dispose()
@@ -1387,9 +1640,13 @@ function MathViewport({
   }, [
     analysisMode,
     angleMode,
+    axisValuesVisible,
     expression,
+    graphZoom,
+    inspectX,
     mathAnalysis,
     numericValue,
+    onInspectXChange,
     orbitEnabled,
     visualizationMode,
   ])
@@ -1402,6 +1659,9 @@ function App() {
   const [angleMode, setAngleMode] = useState<AngleMode>('rad')
   const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('auto')
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('function')
+  const [axisValuesVisible, setAxisValuesVisible] = useState(true)
+  const [graphZoom, setGraphZoom] = useState(1)
+  const [inspectX, setInspectX] = useState(1)
   const [orbitEnabled, setOrbitEnabled] = useState(false)
   const [memory, setMemory] = useState(0)
   const [secondary, setSecondary] = useState(false)
@@ -1473,6 +1733,33 @@ function App() {
     ]
   }, [analysisMode, expression, mathAnalysis.kind])
 
+  const inspectedActiveValue = useMemo(
+    () =>
+      mathAnalysis.kind === 'function2d'
+        ? evaluateRawForPoint(mathAnalysis.activeExpression, angleMode, inspectX)
+        : null,
+    [angleMode, inspectX, mathAnalysis.activeExpression, mathAnalysis.kind],
+  )
+
+  const inspectedSlope = useMemo(() => {
+    if (mathAnalysis.kind !== 'function2d') {
+      return null
+    }
+
+    return mathAnalysis.symbolicDerivative
+      ? evaluateRawForPoint(mathAnalysis.symbolicDerivative, angleMode, inspectX)
+      : derivativeAt(expression, angleMode, inspectX)
+  }, [angleMode, expression, inspectX, mathAnalysis.kind, mathAnalysis.symbolicDerivative])
+
+  const isConstantActiveFunction = useMemo(() => {
+    if (mathAnalysis.kind !== 'function2d') {
+      return false
+    }
+
+    const normalizedExpression = normalizeExpressionForMath(mathAnalysis.activeExpression)
+    return !/\b[xt]\b/.test(normalizedExpression)
+  }, [mathAnalysis.activeExpression, mathAnalysis.kind])
+
   const analysisRows = useMemo(() => {
     if (mathAnalysis.kind === 'function2d') {
       if (analysisMode === 'derivative') {
@@ -1484,10 +1771,11 @@ function App() {
               ? displayExpression(mathAnalysis.symbolicDerivative)
               : 'not available',
           ],
+          ['shape', isConstantActiveFunction ? 'horizontal line' : 'curve'],
           ["roots of f'(x)", formatRootAnalysis(mathAnalysis.activeRootAnalysis)],
           [
-            "f'(1)",
-            mathAnalysis.derivativeAtOne === null ? 'not available' : formatValue(mathAnalysis.derivativeAtOne),
+            getInspectedFunctionLabel(analysisMode, inspectX),
+            inspectedActiveValue === null ? 'not available' : formatValue(inspectedActiveValue),
           ],
         ]
       }
@@ -1503,6 +1791,10 @@ function App() {
           ],
           ['roots of F(x)', formatRootAnalysis(mathAnalysis.activeRootAnalysis)],
           [
+            getInspectedFunctionLabel(analysisMode, inspectX),
+            inspectedActiveValue === null ? 'not available' : formatValue(inspectedActiveValue),
+          ],
+          [
             'area [-2, 2]',
             mathAnalysis.integralArea === null ? 'not available' : formatValue(mathAnalysis.integralArea),
           ],
@@ -1513,8 +1805,12 @@ function App() {
         ['roots of f(x)', formatRootAnalysis(mathAnalysis.rootAnalysis)],
         ['y-intercept', mathAnalysis.yIntercept === null ? 'not available' : formatValue(mathAnalysis.yIntercept)],
         [
-          "f'(1)",
-          mathAnalysis.derivativeAtOne === null ? 'not available' : formatValue(mathAnalysis.derivativeAtOne),
+          getInspectedFunctionLabel(analysisMode, inspectX),
+          inspectedActiveValue === null ? 'not available' : formatValue(inspectedActiveValue),
+        ],
+        [
+          `f'(${formatValue(inspectX)})`,
+          inspectedSlope === null ? 'not available' : formatValue(inspectedSlope),
         ],
         [
           'integral [-2, 2]',
@@ -1552,7 +1848,16 @@ function App() {
     }
 
     return [['value', evaluated.valid ? evaluated.label : 'syntax']]
-  }, [analysisMode, evaluated, expression, mathAnalysis])
+  }, [
+    analysisMode,
+    evaluated,
+    expression,
+    inspectX,
+    inspectedActiveValue,
+    inspectedSlope,
+    isConstantActiveFunction,
+    mathAnalysis,
+  ])
 
   const generatorContext =
     mathAnalysis.kind === 'function2d'
@@ -1607,6 +1912,21 @@ function App() {
 
     requestAnimationFrame(() => {
       expressionInputRef.current?.setSelectionRange(nextSelectionStart, nextSelectionEnd)
+    })
+  }
+
+  const updateInspectX = (value: number) => {
+    if (!Number.isFinite(value)) {
+      return
+    }
+
+    setInspectX(Number(clamp(value, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT).toFixed(2)))
+  }
+
+  const zoomGraph = (direction: 'in' | 'out') => {
+    setGraphZoom((value) => {
+      const factor = direction === 'in' ? 1.25 : 0.8
+      return Number(clamp(value * factor, 0.5, 4).toFixed(2))
     })
   }
 
@@ -1829,6 +2149,8 @@ function App() {
   const functionSymbol = getFunctionSymbol(analysisMode)
   const activeFunctionExpression =
     mathAnalysis.kind === 'function2d' ? mathAnalysis.activeExpression : expression
+  const inspectedFunctionLabel =
+    mathAnalysis.kind === 'function2d' ? getInspectedFunctionLabel(analysisMode, inspectX) : ''
   const activeTransformExpression =
     analysisMode === 'derivative'
       ? mathAnalysis.symbolicDerivative
@@ -1924,12 +2246,53 @@ function App() {
             <MathViewport
               analysisMode={analysisMode}
               angleMode={angleMode}
+              axisValuesVisible={axisValuesVisible}
               expression={expression}
+              graphZoom={graphZoom}
+              inspectX={inspectX}
               mathAnalysis={mathAnalysis}
               numericValue={evaluated.numeric}
+              onInspectXChange={updateInspectX}
               orbitEnabled={orbitEnabled}
               visualizationMode={visualizationMode}
             />
+            {mathAnalysis.kind === 'function2d' && (
+              <div className="viewport-controls" aria-label="Graph display controls">
+                <button
+                  className={axisValuesVisible ? 'active' : undefined}
+                  onClick={() => setAxisValuesVisible((visible) => !visible)}
+                  title="Toggle axis values"
+                  type="button"
+                >
+                  <Hash size={15} />
+                  <span>values</span>
+                </button>
+                <button
+                  aria-label="Zoom graph out"
+                  onClick={() => zoomGraph('out')}
+                  title="Zoom out"
+                  type="button"
+                >
+                  <ZoomOut size={15} />
+                </button>
+                <button
+                  aria-label="Reset graph zoom"
+                  onClick={() => setGraphZoom(1)}
+                  title="Reset zoom"
+                  type="button"
+                >
+                  {Math.round(graphZoom * 100)}%
+                </button>
+                <button
+                  aria-label="Zoom graph in"
+                  onClick={() => zoomGraph('in')}
+                  title="Zoom in"
+                  type="button"
+                >
+                  <ZoomIn size={15} />
+                </button>
+              </div>
+            )}
             <div className="viewport-readout">
               <span>
                 {mathAnalysis.kind === 'function2d'
@@ -1938,6 +2301,20 @@ function App() {
               </span>
               <strong>{displayExpression(activeFunctionExpression) || '0'}</strong>
             </div>
+            {mathAnalysis.kind === 'function2d' && (
+              <div className="viewport-inspector">
+                <span>inspect x</span>
+                <strong>{formatValue(inspectX)}</strong>
+                <span>{inspectedFunctionLabel}</span>
+                <strong>{inspectedActiveValue === null ? 'not available' : formatValue(inspectedActiveValue)}</strong>
+                {isConstantActiveFunction && (
+                  <>
+                    <span>shape</span>
+                    <strong>horizontal line</strong>
+                  </>
+                )}
+              </div>
+            )}
           </section>
 
           <aside className="history-panel analysis-panel">
@@ -1953,6 +2330,33 @@ function App() {
                 </div>
               ))}
             </div>
+            {mathAnalysis.kind === 'function2d' && (
+              <div className="inspect-control">
+                <label htmlFor="inspect-x">
+                  <span>inspect x</span>
+                  <strong>{formatValue(inspectX)}</strong>
+                </label>
+                <input
+                  aria-label="Inspect x"
+                  id="inspect-x"
+                  max={MAX_GRAPH_EXTENT}
+                  min={-MAX_GRAPH_EXTENT}
+                  onChange={(event) => updateInspectX(Number(event.target.value))}
+                  step={0.1}
+                  type="range"
+                  value={inspectX}
+                />
+                <input
+                  aria-label="Inspect x value"
+                  max={MAX_GRAPH_EXTENT}
+                  min={-MAX_GRAPH_EXTENT}
+                  onChange={(event) => updateInspectX(Number(event.target.value))}
+                  step={0.01}
+                  type="number"
+                  value={inspectX}
+                />
+              </div>
+            )}
             <div className="panel-heading history-heading">
               <span>history</span>
             </div>
