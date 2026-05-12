@@ -1220,29 +1220,39 @@ function MathViewport({
       const sourceExpression = expression.trim() || '0'
       const activeExpression = mathAnalysis.activeExpression.trim() || sourceExpression
       const hasTransform = activeExpression !== sourceExpression
-      const buildCurvePoints = (curveExpression: string) => {
-        const points: THREE.Vector3[] = []
+      const buildCurveSegments = (curveExpression: string) => {
+        const segments: THREE.Vector3[][] = []
+        let currentSegment: THREE.Vector3[] = []
+        const finishSegment = () => {
+          if (currentSegment.length > 1) {
+            segments.push(currentSegment)
+          }
+          currentSegment = []
+        }
 
         for (let index = 0; index <= 420; index += 1) {
           const x = bounds.minX + ((bounds.maxX - bounds.minX) * index) / 420
-          const y = evaluateForPoint(curveExpression, angleMode, x)
-          if (y !== null) {
-            points.push(toGraphPoint(x, y, bounds.minY, bounds.maxY))
+          const y = evaluateRawForPoint(curveExpression, angleMode, x)
+          const yIsVisible = y !== null && y >= bounds.minY && y <= bounds.maxY
+
+          if (yIsVisible) {
+            currentSegment.push(toGraphPoint(x, y, bounds.minY, bounds.maxY))
+          } else {
+            finishSegment()
           }
         }
 
-        return points
+        finishSegment()
+        return segments
       }
 
       if (hasTransform) {
-        const sourcePoints = buildCurvePoints(sourceExpression)
-        if (sourcePoints.length > 1) {
-          line(sourcePoints, 0x8f6f8e, 0.42)
-        }
+        buildCurveSegments(sourceExpression).forEach((segment) => line(segment, 0x8f6f8e, 0.42))
       }
 
-      const activePoints = buildCurvePoints(activeExpression)
-      if (activePoints.length > 1) {
+      const activeSegments = buildCurveSegments(activeExpression)
+      const activePoints = activeSegments.flat()
+      if (activeSegments.length > 0) {
         const activeYValues = activePoints.map((point) => point.y)
         const activeMinY = Math.min(...activeYValues)
         const activeMaxY = Math.max(...activeYValues)
@@ -1260,11 +1270,11 @@ function MathViewport({
             new THREE.Vector3(((bounds.minX + bounds.maxX) / 2) * GRAPH_SCALE, activePoints[0].y, 0.045),
           )
         }
-        line(activePoints, 0x6ee7ff, 1)
+        activeSegments.forEach((segment) => line(segment, 0x6ee7ff, 1))
       }
 
-      const inspectedY = evaluateForPoint(activeExpression, angleMode, inspectX)
-      if (inspectedY !== null) {
+      const inspectedY = evaluateRawForPoint(activeExpression, angleMode, inspectX)
+      if (inspectX >= bounds.minX && inspectX <= bounds.maxX) {
         line(
           [
             toGraphPoint(inspectX, bounds.minY, bounds.minY, bounds.maxY).setZ(0.01),
@@ -1273,7 +1283,15 @@ function MathViewport({
           0xfff2c9,
           0.28,
         )
+      }
 
+      if (
+        inspectedY !== null &&
+        inspectX >= bounds.minX &&
+        inspectX <= bounds.maxX &&
+        inspectedY >= bounds.minY &&
+        inspectedY <= bounds.maxY
+      ) {
         const inspectMarker = new THREE.Mesh(
           new THREE.CircleGeometry(0.13, 32),
           new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
