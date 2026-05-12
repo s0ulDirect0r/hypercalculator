@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { evaluate } from 'mathjs'
 import nerdamer from 'nerdamer'
 import 'nerdamer/Calculus'
@@ -123,8 +123,76 @@ const mathFunctionNames = new Set([
   'tanh',
 ])
 
+const superscriptCharacters = '⁰¹²³⁴⁵⁶⁷⁸⁹⁻'
+const superscriptFromPlain: Record<string, string> = {
+  '-': '⁻',
+  '0': '⁰',
+  '1': '¹',
+  '2': '²',
+  '3': '³',
+  '4': '⁴',
+  '5': '⁵',
+  '6': '⁶',
+  '7': '⁷',
+  '8': '⁸',
+  '9': '⁹',
+}
+const plainFromSuperscript = Object.fromEntries(
+  Object.entries(superscriptFromPlain).map(([plain, superscript]) => [superscript, plain]),
+)
+const vulgarFractionCharacters = '¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞'
+const vulgarFractionFromPlain: Record<string, string> = {
+  '1/2': '½',
+  '1/3': '⅓',
+  '2/3': '⅔',
+  '1/4': '¼',
+  '3/4': '¾',
+  '1/5': '⅕',
+  '2/5': '⅖',
+  '3/5': '⅗',
+  '4/5': '⅘',
+  '1/6': '⅙',
+  '5/6': '⅚',
+  '1/7': '⅐',
+  '1/8': '⅛',
+  '3/8': '⅜',
+  '5/8': '⅝',
+  '7/8': '⅞',
+  '1/9': '⅑',
+  '1/10': '⅒',
+}
+const plainFromVulgarFraction = Object.fromEntries(
+  Object.entries(vulgarFractionFromPlain).map(([plain, fraction]) => [fraction, plain]),
+)
+
+const toSuperscript = (value: string) =>
+  value.replace(/[-0-9]/g, (character) => superscriptFromPlain[character] ?? character)
+
+const fromSuperscript = (value: string) =>
+  value.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]/g, (character) => plainFromSuperscript[character] ?? character)
+
+const formatExpressionInput = (expression: string) =>
+  expression
+    .replace(/\^(-?\d+)/g, (_, exponent: string) => toSuperscript(exponent))
+    .replace(
+      /(?<![0-9A-Za-z.)\]}>⁰¹²³⁴⁵⁶⁷⁸⁹⁻])([1-9])\/(10|[2-9])(?![0-9A-Za-z({[<⁰¹²³⁴⁵⁶⁷⁸⁹⁻])/g,
+      (match) => vulgarFractionFromPlain[match] ?? match,
+    )
+
+const expandFormattedExponents = (expression: string) =>
+  expression.replace(
+    new RegExp(`[${superscriptCharacters}]+`, 'g'),
+    (exponent) => `^${fromSuperscript(exponent)}`,
+  )
+
+const expandFormattedFractions = (expression: string) =>
+  expression.replace(
+    new RegExp(`[${vulgarFractionCharacters}]`, 'g'),
+    (fraction) => `(${plainFromVulgarFraction[fraction]})`,
+  )
+
 const normalizeExpressionForMath = (expression: string) => {
-  const compact = expression
+  const compact = expandFormattedFractions(expandFormattedExponents(expression))
     .replaceAll('−', '-')
     .replaceAll('×', '*')
     .replaceAll('÷', '/')
@@ -197,7 +265,7 @@ const normalizeExpressionForMath = (expression: string) => {
 }
 
 const displayExpression = (expression: string) =>
-  expression
+  formatExpressionInput(expression)
     .replaceAll('log10', 'log')
     .replaceAll('sqrt', '√')
     .replace(/\bpi\b/g, 'π')
@@ -1330,15 +1398,16 @@ function MathViewport({
 }
 
 function App() {
-  const [expression, setExpression] = useState('x^2 - 4')
+  const [expression, setExpression] = useState(() => formatExpressionInput('x^2 - 4'))
   const [angleMode, setAngleMode] = useState<AngleMode>('rad')
   const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('auto')
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('function')
   const [orbitEnabled, setOrbitEnabled] = useState(false)
   const [memory, setMemory] = useState(0)
   const [secondary, setSecondary] = useState(false)
+  const expressionInputRef = useRef<HTMLInputElement | null>(null)
   const [history, setHistory] = useState<HistoryItem[]>([
-    { expression: 'x^2 - 4', value: 'function' },
+    { expression: formatExpressionInput('x^2 - 4'), value: 'function' },
     { expression: '<3, 4>', value: 'vector' },
     { expression: '3 + 4i', value: 'complex' },
   ])
@@ -1524,12 +1593,29 @@ function App() {
     { description: 'two-variable surface', label: 'Surface', target: 'surface' },
   ]
 
+  const setFormattedExpression = (value: string) => setExpression(formatExpressionInput(value))
+
+  const handleExpressionChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const rawValue = event.target.value
+    const selectionStart = event.target.selectionStart ?? rawValue.length
+    const selectionEnd = event.target.selectionEnd ?? selectionStart
+    const nextValue = formatExpressionInput(rawValue)
+    const nextSelectionStart = formatExpressionInput(rawValue.slice(0, selectionStart)).length
+    const nextSelectionEnd = formatExpressionInput(rawValue.slice(0, selectionEnd)).length
+
+    setExpression(nextValue)
+
+    requestAnimationFrame(() => {
+      expressionInputRef.current?.setSelectionRange(nextSelectionStart, nextSelectionEnd)
+    })
+  }
+
   const generateExample = (intent: GeneratorIntent) => {
     const generated = makeGeneratedExample(intent, mathAnalysis.kind, analysisMode)
     setAnalysisMode(generated.analysisMode)
     setVisualizationMode(generated.visualizationMode)
     setOrbitEnabled(false)
-    setExpression(generated.expression)
+    setFormattedExpression(generated.expression)
   }
 
   const selectConcept = (concept: ConceptTarget) => {
@@ -1537,7 +1623,7 @@ function App() {
     setAnalysisMode(generated.analysisMode)
     setVisualizationMode(generated.visualizationMode)
     setOrbitEnabled(false)
-    setExpression(generated.expression)
+    setFormattedExpression(generated.expression)
   }
 
   const commitEvaluation = () => {
@@ -1551,7 +1637,7 @@ function App() {
     }
 
     setHistory((items) => [{ expression, value: evaluated.label }, ...items].slice(0, 7))
-    setExpression(String(evaluated.numeric ?? evaluated.label).replaceAll(',', ''))
+    setFormattedExpression(String(evaluated.numeric ?? evaluated.label).replaceAll(',', ''))
   }
 
   const handleInput = (token: string) => {
@@ -1591,49 +1677,49 @@ function App() {
         }
         return
       case 'mr':
-        setExpression((current) => appendToken(current, String(memory)))
+        setExpression((current) => formatExpressionInput(appendToken(current, String(memory))))
         return
       case '%':
-        setExpression((current) => insertPercent(current))
+        setExpression((current) => formatExpressionInput(insertPercent(current)))
         return
       case '+/-':
-        setExpression((current) => toggleSign(current))
+        setExpression((current) => formatExpressionInput(toggleSign(current)))
         return
       case 'Rand':
-        setExpression((current) => appendToken(current, 'rand()'))
+        setExpression((current) => formatExpressionInput(appendToken(current, 'rand()')))
         return
       case 'sample-function':
         setVisualizationMode('fx')
         setAnalysisMode('function')
-        setExpression('x^2 - 4')
+        setFormattedExpression('x^2 - 4')
         return
       case 'sample-derivative':
         setVisualizationMode('fx')
         setAnalysisMode('derivative')
-        setExpression('x^3 - 3x')
+        setFormattedExpression('x^3 - 3x')
         return
       case 'sample-integral':
         setVisualizationMode('fx')
         setAnalysisMode('integral')
-        setExpression('sin(x)')
+        setFormattedExpression('sin(x)')
         return
       case 'sample-vector':
         setVisualizationMode('auto')
         setAnalysisMode('function')
-        setExpression('<3, 4>')
+        setFormattedExpression('<3, 4>')
         return
       case 'sample-complex':
         setVisualizationMode('auto')
         setAnalysisMode('function')
-        setExpression('3 + 4i')
+        setFormattedExpression('3 + 4i')
         return
       case 'sample-surface':
         setVisualizationMode('fxy')
         setAnalysisMode('function')
-        setExpression('sin(x) * cos(y)')
+        setFormattedExpression('sin(x) * cos(y)')
         return
       default:
-        setExpression((current) => appendToken(current, token))
+        setExpression((current) => formatExpressionInput(appendToken(current, token)))
     }
   }
 
@@ -1785,7 +1871,7 @@ function App() {
                   className="object-card active"
                   key={object.expression}
                   type="button"
-                  onClick={() => setExpression(object.expression)}
+                  onClick={() => setFormattedExpression(object.expression)}
                 >
                   {displayExpression(object.expression)}
                   <strong>{object.label}</strong>
@@ -1874,7 +1960,7 @@ function App() {
               <button
                 type="button"
                 key={`${item.expression}-${index}`}
-                onClick={() => setExpression(item.expression)}
+                onClick={() => setFormattedExpression(item.expression)}
               >
                 <span>{displayExpression(item.expression)}</span>
                 <strong>{item.value}</strong>
@@ -1888,12 +1974,13 @@ function App() {
             <input
               aria-label="Expression"
               className="expression-input"
-              onChange={(event) => setExpression(event.target.value)}
+              onChange={handleExpressionChange}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   commitEvaluation()
                 }
               }}
+              ref={expressionInputRef}
               spellCheck={false}
               value={expression}
             />
@@ -1966,7 +2053,7 @@ function App() {
             >
               orbit
             </button>
-            <button type="button" onClick={() => setExpression('0')} aria-label="Clear expression">
+            <button type="button" onClick={() => setFormattedExpression('0')} aria-label="Clear expression">
               <RotateCcw size={15} />
             </button>
           </div>
