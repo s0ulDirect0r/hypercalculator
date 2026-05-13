@@ -1826,6 +1826,7 @@ function App() {
   const [orbitEnabled, setOrbitEnabled] = useState(false)
   const [memory, setMemory] = useState(0)
   const [secondary, setSecondary] = useState(false)
+  const [shiftSecondary, setShiftSecondary] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [expressionFocused, setExpressionFocused] = useState(false)
   const expressionInputRef = useRef<HTMLInputElement | null>(null)
@@ -2191,6 +2192,11 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Shift') {
+        setShiftSecondary(true)
+        return
+      }
+
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
@@ -2230,16 +2236,29 @@ function App() {
         handleInput(mapped)
       }
     }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Shift') {
+        setShiftSecondary(false)
+      }
+    }
+    const onWindowBlur = () => setShiftSecondary(false)
 
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onWindowBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onWindowBlur)
+    }
   })
 
+  const secondaryActive = secondary || shiftSecondary
   const keys = [
     ['(', ')', 'mc', 'm+', 'm-', 'mr', 'backspace', 'AC', '%', '/'],
     ['2nd', 'x', 'y', '^2', '^3', '^', '7', '8', '9', '*'],
     ['<', ',', '>', 'sqrt(', 'log(', 'log2(', '4', '5', '6', '-'],
-    ['!', secondary ? 'asin(' : 'sin(', secondary ? 'acos(' : 'cos(', secondary ? 'atan(' : 'tan(', 'i', '*10^', '1', '2', '3', '+'],
+    ['!', secondaryActive ? 'asin(' : 'sin(', secondaryActive ? 'acos(' : 'cos(', secondaryActive ? 'atan(' : 'tan(', 'i', '*10^', '1', '2', '3', '+'],
     ['Rand', 'sinh(', 'cosh(', 'tanh(', 'pi', angleMode === 'rad' ? 'Rad' : 'Deg', '+/-', '0', '.', '='],
   ]
 
@@ -2257,9 +2276,9 @@ function App() {
       'log(': 'log',
       'log2(': 'log₂',
       '!': 'x!',
-      'sin(': secondary ? 'sin⁻¹' : 'sin',
-      'cos(': secondary ? 'cos⁻¹' : 'cos',
-      'tan(': secondary ? 'tan⁻¹' : 'tan',
+      'sin(': secondaryActive ? 'sin⁻¹' : 'sin',
+      'cos(': secondaryActive ? 'cos⁻¹' : 'cos',
+      'tan(': secondaryActive ? 'tan⁻¹' : 'tan',
       'asin(': 'sin⁻¹',
       'acos(': 'cos⁻¹',
       'atan(': 'tan⁻¹',
@@ -2283,13 +2302,75 @@ function App() {
     if (/^\d$/.test(key) || key === '.') {
       return 'number'
     }
-    if (key === '2nd' && secondary) {
+    if (key === '2nd' && secondaryActive) {
       return 'mode active'
     }
     if (key === 'Rad' || key === 'Deg') {
       return 'mode'
     }
     return 'scientific'
+  }
+
+  const keyArea = (key: string) => {
+    const areas: Record<string, string> = {
+      '!': 'factorial',
+      '%': 'percent',
+      '*': 'multiply',
+      '*10^': 'ee',
+      '+': 'add',
+      '+/-': 'sign',
+      ',': 'comma',
+      '-': 'subtract',
+      '.': 'decimal',
+      '/': 'divide',
+      '(': 'lparen',
+      ')': 'rparen',
+      '0': 'zero',
+      '1': 'one',
+      '2': 'two',
+      '2nd': 'second',
+      '3': 'three',
+      '4': 'four',
+      '5': 'five',
+      '6': 'six',
+      '7': 'seven',
+      '8': 'eight',
+      '9': 'nine',
+      '<': 'less',
+      '=': 'equals',
+      '>': 'greater',
+      AC: 'clear',
+      Deg: 'angle',
+      Rad: 'angle',
+      Rand: 'rand',
+      'acos(': 'cos',
+      'asin(': 'sin',
+      'atan(': 'tan',
+      backspace: 'backspace',
+      'cos(': 'cos',
+      'cosh(': 'cosh',
+      i: 'imaginary',
+      'log(': 'log',
+      'log2(': 'log2',
+      m: 'memory',
+      'm+': 'memory-add',
+      'm-': 'memory-subtract',
+      mc: 'memory-clear',
+      mr: 'memory-recall',
+      pi: 'pi',
+      'sin(': 'sin',
+      'sinh(': 'sinh',
+      'sqrt(': 'sqrt',
+      'tan(': 'tan',
+      'tanh(': 'tanh',
+      x: 'xvar',
+      y: 'yvar',
+      '^': 'power',
+      '^2': 'power-two',
+      '^3': 'power-three',
+    }
+
+    return areas[key] ?? key
   }
 
   const hasCoordinateViewport = mathAnalysis.kind === 'function2d' || mathAnalysis.kind === 'geometry2d'
@@ -2535,6 +2616,7 @@ function App() {
               <button
                 aria-label={key === 'backspace' ? 'Backspace' : labelForKey(key)}
                 className={`calc-key ${keyClass(key)}`}
+                data-key-area={keyArea(key)}
                 key={key}
                 onClick={() => handleInput(key)}
                 type="button"

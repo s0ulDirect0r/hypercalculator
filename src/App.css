@@ -598,6 +598,230 @@ button:focus-visible {
   .status-strip button {
     width: auto;
   }
+
+  .keypad {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-areas:
+      'lparen lparen rparen rparen memory-clear memory-clear memory-add memory-add memory-subtract memory-subtract memory-recall memory-recall'
+      'second second xvar xvar yvar yvar power-two power-two power-three power-three power power'
+      'less less comma comma greater greater sqrt sqrt log log log2 log2'
+      'factorial factorial sin sin cos cos tan tan imaginary imaginary ee ee'
+      'rand rand sinh sinh cosh cosh tanh tanh pi pi angle angle'
+      'backspace backspace backspace clear clear clear percent percent percent divide divide divide'
+      'seven seven seven eight eight eight nine nine nine multiply multiply multiply'
+      'four four four five five five six six six subtract subtract subtract'
+      'one one one two two two three three three add add add'
+      'sign sign sign zero zero zero decimal decimal decimal equals equals equals';
+    grid-auto-rows: clamp(58px, 7.8vw, 82px);
+    gap: 8px;
+  }
+
+  .calc-key {
+    height: 100%;
+    aspect-ratio: auto;
+    border-radius: 999px;
+    font-size: clamp(16px, 2.7vw, 26px);
+  }
+
+  .calc-key[data-key-area='second'] {
+    grid-area: second;
+  }
+
+  .calc-key[data-key-area='xvar'] {
+    grid-area: xvar;
+  }
+
+  .calc-key[data-key-area='yvar'] {
+    grid-area: yvar;
+  }
+
+  .calc-key[data-key-area='power-two'] {
+    grid-area: power-two;
+  }
+
+  .calc-key[data-key-area='power-three'] {
+    grid-area: power-three;
+  }
+
+  .calc-key[data-key-area='lparen'] {
+    grid-area: lparen;
+  }
+
+  .calc-key[data-key-area='rparen'] {
+    grid-area: rparen;
+  }
+
+  .calc-key[data-key-area='power'] {
+    grid-area: power;
+  }
+
+  .calc-key[data-key-area='sqrt'] {
+    grid-area: sqrt;
+  }
+
+  .calc-key[data-key-area='log'] {
+    grid-area: log;
+  }
+
+  .calc-key[data-key-area='sin'] {
+    grid-area: sin;
+  }
+
+  .calc-key[data-key-area='cos'] {
+    grid-area: cos;
+  }
+
+  .calc-key[data-key-area='tan'] {
+    grid-area: tan;
+  }
+
+  .calc-key[data-key-area='log2'] {
+    grid-area: log2;
+  }
+
+  .calc-key[data-key-area='imaginary'] {
+    grid-area: imaginary;
+  }
+
+  .calc-key[data-key-area='sinh'] {
+    grid-area: sinh;
+  }
+
+  .calc-key[data-key-area='cosh'] {
+    grid-area: cosh;
+  }
+
+  .calc-key[data-key-area='tanh'] {
+    grid-area: tanh;
+  }
+
+  .calc-key[data-key-area='ee'] {
+    grid-area: ee;
+  }
+
+  .calc-key[data-key-area='pi'] {
+    grid-area: pi;
+  }
+
+  .calc-key[data-key-area='less'] {
+    grid-area: less;
+  }
+
+  .calc-key[data-key-area='comma'] {
+    grid-area: comma;
+  }
+
+  .calc-key[data-key-area='greater'] {
+    grid-area: greater;
+  }
+
+  .calc-key[data-key-area='factorial'] {
+    grid-area: factorial;
+  }
+
+  .calc-key[data-key-area='rand'] {
+    grid-area: rand;
+  }
+
+  .calc-key[data-key-area='memory-clear'] {
+    grid-area: memory-clear;
+  }
+
+  .calc-key[data-key-area='memory-add'] {
+    grid-area: memory-add;
+  }
+
+  .calc-key[data-key-area='memory-subtract'] {
+    grid-area: memory-subtract;
+  }
+
+  .calc-key[data-key-area='memory-recall'] {
+    grid-area: memory-recall;
+  }
+
+  .calc-key[data-key-area='backspace'] {
+    grid-area: backspace;
+  }
+
+  .calc-key[data-key-area='clear'] {
+    grid-area: clear;
+  }
+
+  .calc-key[data-key-area='seven'] {
+    grid-area: seven;
+  }
+
+  .calc-key[data-key-area='eight'] {
+    grid-area: eight;
+  }
+
+  .calc-key[data-key-area='nine'] {
+    grid-area: nine;
+  }
+
+  .calc-key[data-key-area='divide'] {
+    grid-area: divide;
+  }
+
+  .calc-key[data-key-area='percent'] {
+    grid-area: percent;
+  }
+
+  .calc-key[data-key-area='four'] {
+    grid-area: four;
+  }
+
+  .calc-key[data-key-area='five'] {
+    grid-area: five;
+  }
+
+  .calc-key[data-key-area='six'] {
+    grid-area: six;
+  }
+
+  .calc-key[data-key-area='multiply'] {
+    grid-area: multiply;
+  }
+
+  .calc-key[data-key-area='sign'] {
+    grid-area: sign;
+  }
+
+  .calc-key[data-key-area='one'] {
+    grid-area: one;
+  }
+
+  .calc-key[data-key-area='two'] {
+    grid-area: two;
+  }
+
+  .calc-key[data-key-area='three'] {
+    grid-area: three;
+  }
+
+  .calc-key[data-key-area='subtract'] {
+    grid-area: subtract;
+  }
+
+  .calc-key[data-key-area='angle'] {
+    grid-area: angle;
+  }
+
+  .calc-key[data-key-area='decimal'] {
+    grid-area: decimal;
+  }
+
+  .calc-key[data-key-area='zero'] {
+    grid-area: zero;
+  }
+
+  .calc-key[data-key-area='equals'] {
+    grid-area: equals;
+  }
+
+  .calc-key[data-key-area='add'] {
+    grid-area: add;
+  }
 }
 
 @media (max-width: 760px) {
@@ -618,12 +842,13 @@ button:focus-visible {
     justify-content: flex-start;
   }
 
-  .keypad {
-    grid-template-columns: repeat(5, minmax(48px, 1fr));
+  .calc-key {
+    font-size: clamp(14px, 4vw, 22px);
   }
 
-  .calc-key {
-    border-radius: 22px;
+  .keypad {
+    grid-auto-rows: clamp(52px, 13vw, 68px);
+    gap: 7px;
   }
 
   .viewport-readout {
