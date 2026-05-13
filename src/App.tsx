@@ -3,21 +3,61 @@ import { evaluate } from 'mathjs'
 import nerdamer from 'nerdamer'
 import 'nerdamer/Calculus'
 import {
+  Box,
+  Circle,
+  CircleDot,
+  Cone,
+  Cuboid,
+  Cylinder,
   Delete,
+  Dices,
   Hash,
   History,
   RotateCcw,
+  Shapes,
   Sparkles,
+  Spline,
+  Square,
+  Triangle,
+  WandSparkles,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
 import * as THREE from 'three'
+import {
+  type Geometry2DObject,
+  type Point2D,
+  type Point3D,
+  type Primitive3DObject,
+  parseGeometry2DObject,
+  parsePrimitive3DObject,
+  splitTopLevelComma,
+} from './geometryObjectModel'
 import './App.css'
 
 type AngleMode = 'rad' | 'deg'
 type VisualizationMode = 'auto' | 'fx' | 'fxy'
 type AnalysisMode = 'function' | 'derivative' | 'integral'
-type MathObjectKind = 'complex' | 'function2d' | 'geometry2d' | 'ratio' | 'scalar' | 'surface3d' | 'vector'
+type GeometryComposerKind =
+  | 'circle'
+  | 'cone'
+  | 'cube'
+  | 'cylinder'
+  | 'line3d'
+  | 'plane'
+  | 'point'
+  | 'segment'
+  | 'sphere'
+  | 'triangle'
+type MathObjectKind =
+  | 'complex'
+  | 'function2d'
+  | 'geometry2d'
+  | 'primitive3d'
+  | 'ratio'
+  | 'scalar'
+  | 'surface3d'
+  | 'vector'
 type HistoryItem = {
   expression: string
   value: string
@@ -49,46 +89,14 @@ type ComplexParts = {
   magnitude: number
   re: number
 }
-type Point2D = {
-  x: number
-  y: number
-}
-type GeometryParts =
-  | {
-      kind: 'circle'
-      area: number
-      center: Point2D
-      circumference: number
-      radius: number
-    }
-  | {
-      kind: 'point'
-      point: Point2D
-    }
-  | {
-      kind: 'segment'
-      a: Point2D
-      b: Point2D
-      length: number
-      midpoint: Point2D
-      slope: number | null
-    }
-  | {
-      kind: 'triangle'
-      area: number
-      centroid: Point2D
-      perimeter: number
-      points: [Point2D, Point2D, Point2D]
-      sides: [number, number, number]
-    }
-
 type MathAnalysis = {
   activeExpression: string
   activeRootAnalysis: RootAnalysis
   complex: ComplexParts | null
-  geometry: GeometryParts | null
+  geometry: Geometry2DObject | null
   integralArea: number | null
   kind: MathObjectKind
+  primitive3d: Primitive3DObject | null
   rootAnalysis: RootAnalysis
   symbolicDerivative: string | null
   symbolicIntegral: string | null
@@ -100,9 +108,226 @@ type MathToken = {
   type: 'comma' | 'function' | 'identifier' | 'lparen' | 'number' | 'operator' | 'rparen'
   value: string
 }
+type GeometryFieldConfig = {
+  key: string
+  label: string
+}
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
+
+const geometryComposerConfig: Record<
+  GeometryComposerKind,
+  {
+    dimension: '2d' | '3d'
+    fields: GeometryFieldConfig[]
+    label: string
+  }
+> = {
+  circle: {
+    dimension: '2d',
+    fields: [
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+      { key: 'r', label: 'r' },
+    ],
+    label: 'circle',
+  },
+  cone: {
+    dimension: '3d',
+    fields: [
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+      { key: 'cz', label: 'cz' },
+      { key: 'r', label: 'r' },
+      { key: 'h', label: 'h' },
+    ],
+    label: 'cone',
+  },
+  cube: {
+    dimension: '3d',
+    fields: [
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+      { key: 'cz', label: 'cz' },
+      { key: 'side', label: 'side' },
+    ],
+    label: 'cube',
+  },
+  cylinder: {
+    dimension: '3d',
+    fields: [
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+      { key: 'cz', label: 'cz' },
+      { key: 'r', label: 'r' },
+      { key: 'h', label: 'h' },
+    ],
+    label: 'cylinder',
+  },
+  line3d: {
+    dimension: '3d',
+    fields: [
+      { key: 'ax', label: 'ax' },
+      { key: 'ay', label: 'ay' },
+      { key: 'az', label: 'az' },
+      { key: 'bx', label: 'bx' },
+      { key: 'by', label: 'by' },
+      { key: 'bz', label: 'bz' },
+    ],
+    label: 'line',
+  },
+  plane: {
+    dimension: '3d',
+    fields: [
+      { key: 'nx', label: 'nx' },
+      { key: 'ny', label: 'ny' },
+      { key: 'nz', label: 'nz' },
+      { key: 'd', label: 'd' },
+    ],
+    label: 'plane',
+  },
+  point: {
+    dimension: '2d',
+    fields: [
+      { key: 'x', label: 'x' },
+      { key: 'y', label: 'y' },
+    ],
+    label: 'point',
+  },
+  segment: {
+    dimension: '2d',
+    fields: [
+      { key: 'ax', label: 'ax' },
+      { key: 'ay', label: 'ay' },
+      { key: 'bx', label: 'bx' },
+      { key: 'by', label: 'by' },
+    ],
+    label: 'segment',
+  },
+  sphere: {
+    dimension: '3d',
+    fields: [
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+      { key: 'cz', label: 'cz' },
+      { key: 'r', label: 'r' },
+    ],
+    label: 'sphere',
+  },
+  triangle: {
+    dimension: '2d',
+    fields: [
+      { key: 'ax', label: 'ax' },
+      { key: 'ay', label: 'ay' },
+      { key: 'bx', label: 'bx' },
+      { key: 'by', label: 'by' },
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+    ],
+    label: 'triangle',
+  },
+}
+
+const geometryComposerDefaults: Record<GeometryComposerKind, Record<string, string>> = {
+  circle: { cx: '0', cy: '0', r: '3' },
+  cone: { cx: '0', cy: '0', cz: '0', h: '5', r: '2' },
+  cube: { cx: '0', cy: '0', cz: '0', side: '4' },
+  cylinder: { cx: '0', cy: '0', cz: '0', h: '5', r: '2' },
+  line3d: { ax: '0', ay: '0', az: '0', bx: '2', by: '3', bz: '1' },
+  plane: { d: '0', nx: '0', ny: '1', nz: '0' },
+  point: { x: '2', y: '3' },
+  segment: { ax: '0', ay: '0', bx: '4', by: '3' },
+  sphere: { cx: '0', cy: '0', cz: '0', r: '3' },
+  triangle: { ax: '0', ay: '0', bx: '4', by: '0', cx: '1', cy: '3' },
+}
+
+const geometryFieldValue = (fields: Record<string, string>, key: string, fallback = '0') =>
+  fields[key]?.trim() || fallback
+
+const geometryFieldsComplete = (kind: GeometryComposerKind, fields: Record<string, string>) =>
+  geometryComposerConfig[kind].fields.every(({ key }) => fields[key]?.trim())
+
+const buildGeometryExpression = (kind: GeometryComposerKind, fields: Record<string, string>) => {
+  const field = (key: string, fallback = '0') => geometryFieldValue(fields, key, fallback)
+
+  switch (kind) {
+    case 'point':
+      return `point(${field('x')}, ${field('y')})`
+    case 'segment':
+      return `segment(a=(${field('ax')},${field('ay')}), b=(${field('bx')},${field('by')}))`
+    case 'circle':
+      return `circle(center=(${field('cx')},${field('cy')}), r=${field('r', '1')})`
+    case 'triangle':
+      return `triangle(a=(${field('ax')},${field('ay')}), b=(${field('bx')},${field('by')}), c=(${field('cx')},${field('cy')}))`
+    case 'line3d':
+      return `line3d(a=(${field('ax')},${field('ay')},${field('az')}), b=(${field('bx')},${field('by')},${field('bz')}))`
+    case 'sphere':
+      return `sphere(center=(${field('cx')},${field('cy')},${field('cz')}), r=${field('r', '1')})`
+    case 'cube':
+      return `cube(center=(${field('cx')},${field('cy')},${field('cz')}), side=${field('side', '1')})`
+    case 'cylinder':
+      return `cylinder(center=(${field('cx')},${field('cy')},${field('cz')}), r=${field('r', '1')}, h=${field('h', '1')})`
+    case 'cone':
+      return `cone(center=(${field('cx')},${field('cy')},${field('cz')}), r=${field('r', '1')}, h=${field('h', '1')})`
+    case 'plane':
+      return `plane(normal=(${field('nx')},${field('ny', '1')},${field('nz')}), d=${field('d')})`
+    default:
+      return 'point(0, 0)'
+  }
+}
+
+const randomInteger = (min: number, max: number) =>
+  String(Math.floor(Math.random() * (max - min + 1)) + min)
+
+const randomPositive = (min: number, max: number) => randomInteger(min, max)
+
+const randomGeometryFields = (kind: GeometryComposerKind): Record<string, string> => {
+  switch (kind) {
+    case 'point':
+      return { x: randomInteger(-6, 6), y: randomInteger(-6, 6) }
+    case 'segment':
+      return { ax: randomInteger(-5, 1), ay: randomInteger(-4, 4), bx: randomInteger(2, 7), by: randomInteger(-4, 4) }
+    case 'circle':
+      return { cx: randomInteger(-4, 4), cy: randomInteger(-4, 4), r: randomPositive(1, 6) }
+    case 'triangle': {
+      const ax = Number(randomInteger(-5, -1))
+      const ay = Number(randomInteger(-3, 3))
+      return {
+        ax: String(ax),
+        ay: String(ay),
+        bx: String(ax + Number(randomPositive(3, 7))),
+        by: String(ay),
+        cx: String(ax + Number(randomPositive(1, 4))),
+        cy: String(ay + Number(randomPositive(2, 6))),
+      }
+    }
+    case 'line3d':
+      return {
+        ax: randomInteger(-3, 1),
+        ay: randomInteger(-3, 3),
+        az: randomInteger(-3, 3),
+        bx: randomInteger(2, 6),
+        by: randomInteger(-3, 3),
+        bz: randomInteger(-3, 3),
+      }
+    case 'sphere':
+      return { cx: randomInteger(-3, 3), cy: randomInteger(-3, 3), cz: randomInteger(-3, 3), r: randomPositive(1, 5) }
+    case 'cube':
+      return { cx: randomInteger(-3, 3), cy: randomInteger(-3, 3), cz: randomInteger(-3, 3), side: randomPositive(1, 5) }
+    case 'cylinder':
+      return { cx: randomInteger(-3, 3), cy: randomInteger(-3, 3), cz: randomInteger(-3, 3), h: randomPositive(2, 7), r: randomPositive(1, 4) }
+    case 'cone':
+      return { cx: randomInteger(-3, 3), cy: randomInteger(-3, 3), cz: randomInteger(-3, 3), h: randomPositive(2, 7), r: randomPositive(1, 4) }
+    case 'plane': {
+      const nx = randomInteger(-2, 2)
+      const ny = nx === '0' ? randomPositive(1, 2) : randomInteger(-2, 2)
+      return { d: randomInteger(-3, 3), nx, ny, nz: randomInteger(-2, 2) }
+    }
+    default:
+      return geometryComposerDefaults.point
+  }
+}
 
 const mathFunctionNames = new Set([
   'abs',
@@ -448,149 +673,16 @@ const parseSimpleDivision = (expression: string): DivisionParts | null => {
   }
 }
 
-const splitTopLevelComma = (value: string) => {
-  const parts = splitTopLevelCommas(value)
-  return parts.length >= 2 ? [parts[0], parts.slice(1).join(',')] : null
-}
-
-const splitTopLevelCommas = (value: string) => {
-  let depth = 0
-  const parts: string[] = []
-  let start = 0
-
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index]
-    if (char === '(' || char === '[' || char === '<') {
-      depth += 1
-    } else if (char === ')' || char === ']' || char === '>') {
-      depth -= 1
-    } else if (char === ',' && depth === 0) {
-      parts.push(value.slice(start, index).trim())
-      start = index + 1
-    }
-  }
-
-  parts.push(value.slice(start).trim())
-  return parts.filter(Boolean)
-}
-
-const distanceBetween = (a: Point2D, b: Point2D) => Math.hypot(b.x - a.x, b.y - a.y)
-
-const midpointBetween = (a: Point2D, b: Point2D) => ({
-  x: (a.x + b.x) / 2,
-  y: (a.y + b.y) / 2,
-})
-
 const formatPoint = (point: Point2D) => `(${formatValue(point.x)}, ${formatValue(point.y)})`
 
-const parsePoint2D = (value: string, angleMode: AngleMode): Point2D | null => {
-  const trimmed = value.trim()
-  const match = trimmed.match(/^\((.*)\)$/) ?? trimmed.match(/^\[(.*)\]$/)
-  if (!match) {
-    return null
-  }
+const formatPoint3D = (point: Point3D) =>
+  `(${formatValue(point.x)}, ${formatValue(point.y)}, ${formatValue(point.z)})`
 
-  const parts = splitTopLevelCommas(match[1])
-  if (parts.length !== 2) {
-    return null
-  }
+const parseGeometry = (expression: string, angleMode: AngleMode) =>
+  parseGeometry2DObject(expression, (value) => evaluateNumeric(value, angleMode))
 
-  const x = evaluateNumeric(parts[0], angleMode)
-  const y = evaluateNumeric(parts[1], angleMode)
-  if (x === null || y === null) {
-    return null
-  }
-
-  return { x, y }
-}
-
-const parseGeometry = (expression: string, angleMode: AngleMode): GeometryParts | null => {
-  const trimmed = expression.trim()
-  const call = trimmed.match(/^([A-Za-z]+)\((.*)\)$/)
-  if (!call) {
-    return null
-  }
-
-  const name = call[1].toLowerCase()
-  const parts = splitTopLevelCommas(call[2])
-
-  if ((name === 'point' || name === 'pt') && parts.length === 2) {
-    const x = evaluateNumeric(parts[0], angleMode)
-    const y = evaluateNumeric(parts[1], angleMode)
-    return x === null || y === null ? null : { kind: 'point', point: { x, y } }
-  }
-
-  if (name === 'circle' && parts.length === 2) {
-    const center = parsePoint2D(parts[0], angleMode)
-    const radius = evaluateNumeric(parts[1], angleMode)
-    if (!center || radius === null || radius <= 0) {
-      return null
-    }
-
-    return {
-      area: Math.PI * radius * radius,
-      center,
-      circumference: Math.PI * radius * 2,
-      kind: 'circle',
-      radius,
-    }
-  }
-
-  if ((name === 'segment' || name === 'seg') && parts.length === 2) {
-    const a = parsePoint2D(parts[0], angleMode)
-    const b = parsePoint2D(parts[1], angleMode)
-    if (!a || !b) {
-      return null
-    }
-
-    const dx = b.x - a.x
-    const dy = b.y - a.y
-    return {
-      a,
-      b,
-      kind: 'segment',
-      length: distanceBetween(a, b),
-      midpoint: midpointBetween(a, b),
-      slope: Math.abs(dx) < 0.000001 ? null : dy / dx,
-    }
-  }
-
-  if ((name === 'triangle' || name === 'tri') && parts.length === 3) {
-    const points = parts.map((part) => parsePoint2D(part, angleMode))
-    if (!points[0] || !points[1] || !points[2]) {
-      return null
-    }
-
-    const trianglePoints = points as [Point2D, Point2D, Point2D]
-    const [a, b, c] = trianglePoints
-    const sides: [number, number, number] = [
-      distanceBetween(a, b),
-      distanceBetween(b, c),
-      distanceBetween(c, a),
-    ]
-    const area = Math.abs(
-      (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)) / 2,
-    )
-
-    if (area < 0.000001) {
-      return null
-    }
-
-    return {
-      area,
-      centroid: {
-        x: (a.x + b.x + c.x) / 3,
-        y: (a.y + b.y + c.y) / 3,
-      },
-      kind: 'triangle',
-      perimeter: sides.reduce((total, side) => total + side, 0),
-      points: trianglePoints,
-      sides,
-    }
-  }
-
-  return null
-}
+const parsePrimitive3D = (expression: string, angleMode: AngleMode) =>
+  parsePrimitive3DObject(expression, (value) => evaluateNumeric(value, angleMode))
 
 const parseVector = (expression: string, angleMode: AngleMode): VectorParts | null => {
   const trimmed = expression.trim()
@@ -823,6 +915,10 @@ const getMathKind = (
     return 'geometry2d'
   }
 
+  if (parsePrimitive3D(expression, angleMode)) {
+    return 'primitive3d'
+  }
+
   if (parseVector(expression, angleMode)) {
     return 'vector'
   }
@@ -852,6 +948,7 @@ const getViewportModeLabel = (kind: MathObjectKind) => {
     complex: 'complex plane',
     function2d: '2D function',
     geometry2d: 'geometry lab',
+    primitive3d: '3D primitive',
     ratio: 'division ratio',
     scalar: 'scalar value',
     surface3d: 'surface function',
@@ -924,6 +1021,7 @@ const makeAnalysis = (
   analysisMode: AnalysisMode,
 ): MathAnalysis => {
   const geometry = parseGeometry(expression, angleMode)
+  const primitive3d = parsePrimitive3D(expression, angleMode)
   const vector = parseVector(expression, angleMode)
   const complex = parseComplex(expression)
   const kind = getMathKind(expression, angleMode, visualizationMode)
@@ -947,6 +1045,7 @@ const makeAnalysis = (
     geometry,
     integralArea: isFunction ? integrate(expression, angleMode, -2, 2) : null,
     kind,
+    primitive3d,
     rootAnalysis,
     symbolicDerivative,
     symbolicIntegral,
@@ -1066,7 +1165,7 @@ function MathViewport({
       camera.zoom = graphZoom
     }
 
-    camera.position.set(0, use2D ? 0 : 3.2, use2D ? 10 : 8)
+    camera.position.set(0, use2D ? 0 : 3.2 / graphZoom, use2D ? 10 : 8 / graphZoom)
     camera.lookAt(0, 0, 0)
     camera.updateProjectionMatrix()
 
@@ -1260,6 +1359,34 @@ function MathViewport({
         if (originLabel) {
           originLabel.position.set((axisX + labelOffset) * GRAPH_SCALE, (axisY - labelOffset) * GRAPH_SCALE, 0.09)
         }
+      }
+    }
+
+    const render3DReferenceFrame = () => {
+      const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
+      grid.position.y = -2.2
+      group.add(grid)
+
+      const axes = new THREE.AxesHelper(3.4)
+      axes.position.y = -2.2
+      group.add(axes)
+
+      if (axisValuesVisible) {
+        const axisLabels: Array<[string, string, THREE.Vector3]> = [
+          ['x=3', '#ffb1a8', new THREE.Vector3(3.55, -2.2, 0)],
+          ['x=-3', '#ffb1a8', new THREE.Vector3(-3.55, -2.2, 0)],
+          ['y=3', '#b4ffc9', new THREE.Vector3(0, 1.15, 0)],
+          ['z=3', '#8fc8ff', new THREE.Vector3(0, -2.2, 3.55)],
+          ['z=-3', '#8fc8ff', new THREE.Vector3(0, -2.2, -3.55)],
+          ['0', '#fff2c9', new THREE.Vector3(0, -2.2, 0)],
+        ]
+
+        axisLabels.forEach(([label, color, position]) => {
+          const sprite = makeTextSprite(label, color)
+          if (sprite) {
+            sprite.position.copy(position)
+          }
+        })
       }
     }
 
@@ -1527,6 +1654,160 @@ function MathViewport({
           conjugateMarker.position.copy(conjugate)
           conjugateMarker.position.z = 0.08
           group.add(conjugateMarker)
+        }
+      }
+    } else if (mathAnalysis.kind === 'primitive3d') {
+      render3DReferenceFrame()
+      const primitive = mathAnalysis.primitive3d
+
+      if (primitive) {
+        const primitiveMaxDimension =
+          primitive.kind === 'sphere'
+            ? primitive.radius * 2
+            : primitive.kind === 'cube'
+              ? primitive.side
+              : primitive.kind === 'cylinder' || primitive.kind === 'cone'
+                ? Math.max(primitive.radius * 2, primitive.height)
+                : primitive.kind === 'line3d'
+                  ? primitive.length
+                  : 7
+        const primitiveScale = Math.min(1, 4 / Math.max(primitiveMaxDimension, 1))
+        const toScenePoint3D = (point: Point3D) =>
+          new THREE.Vector3(point.x * primitiveScale, point.y * primitiveScale, point.z * primitiveScale)
+        const solidMaterial = new THREE.MeshStandardMaterial({
+          color: 0x60e6ff,
+          emissive: 0x0a4050,
+          metalness: 0.18,
+          roughness: 0.28,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.74,
+        })
+        const wireMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffa238,
+          opacity: 0.24,
+          transparent: true,
+          wireframe: true,
+        })
+        const accentMaterial = new THREE.MeshStandardMaterial({
+          color: 0xfff2c9,
+          emissive: 0x493a14,
+          metalness: 0.12,
+          roughness: 0.24,
+        })
+        const addPrimitiveMesh = (
+          geometry: THREE.BufferGeometry,
+          position: THREE.Vector3,
+          quaternion?: THREE.Quaternion,
+          material = solidMaterial,
+        ) => {
+          const mesh = new THREE.Mesh(geometry, material)
+          mesh.position.copy(position)
+          if (quaternion) {
+            mesh.quaternion.copy(quaternion)
+          }
+          group.add(mesh)
+
+          const wire = new THREE.Mesh(geometry.clone(), wireMaterial)
+          wire.position.copy(position)
+          wire.quaternion.copy(mesh.quaternion)
+          group.add(wire)
+          return mesh
+        }
+        const addCenterMarker = (center: Point3D) => {
+          const marker = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), accentMaterial)
+          marker.position.copy(toScenePoint3D(center))
+          group.add(marker)
+        }
+
+        if (primitive.kind === 'sphere') {
+          const center = toScenePoint3D(primitive.center)
+          const radius = primitive.radius * primitiveScale
+          addPrimitiveMesh(new THREE.SphereGeometry(radius, 48, 32), center)
+          addCenterMarker(primitive.center)
+          line([center, center.clone().add(new THREE.Vector3(radius, 0, 0))], 0xfff2c9, 0.82)
+        } else if (primitive.kind === 'cube') {
+          const side = primitive.side * primitiveScale
+          addPrimitiveMesh(new THREE.BoxGeometry(side, side, side), toScenePoint3D(primitive.center))
+          addCenterMarker(primitive.center)
+        } else if (primitive.kind === 'cylinder') {
+          const center = toScenePoint3D(primitive.center)
+          const radius = primitive.radius * primitiveScale
+          const height = primitive.height * primitiveScale
+          addPrimitiveMesh(new THREE.CylinderGeometry(radius, radius, height, 64, 1, false), center)
+          addCenterMarker(primitive.center)
+          line(
+            [
+              center.clone().add(new THREE.Vector3(0, -height / 2, 0)),
+              center.clone().add(new THREE.Vector3(0, height / 2, 0)),
+            ],
+            0xfff2c9,
+            0.78,
+          )
+          line([center, center.clone().add(new THREE.Vector3(radius, 0, 0))], 0xfff2c9, 0.72)
+        } else if (primitive.kind === 'cone') {
+          const center = toScenePoint3D(primitive.center)
+          const radius = primitive.radius * primitiveScale
+          const height = primitive.height * primitiveScale
+          addPrimitiveMesh(new THREE.ConeGeometry(radius, height, 64, 1, false), center)
+          addCenterMarker(primitive.center)
+          line(
+            [
+              center.clone().add(new THREE.Vector3(0, -height / 2, 0)),
+              center.clone().add(new THREE.Vector3(0, height / 2, 0)),
+            ],
+            0xfff2c9,
+            0.78,
+          )
+          line(
+            [
+              center.clone().add(new THREE.Vector3(0, height / 2, 0)),
+              center.clone().add(new THREE.Vector3(radius, -height / 2, 0)),
+            ],
+            0xfff2c9,
+            0.72,
+          )
+        } else if (primitive.kind === 'line3d') {
+          const a = toScenePoint3D(primitive.a)
+          const b = toScenePoint3D(primitive.b)
+          const direction = b.clone().sub(a).normalize()
+          const extension = Math.max(1, Math.min(2.5, primitive.length * primitiveScale))
+          line(
+            [
+              a.clone().sub(direction.clone().multiplyScalar(extension)),
+              b.clone().add(direction.clone().multiplyScalar(extension)),
+            ],
+            0x6ee7ff,
+            1,
+          )
+          line([a, b], 0xfff2c9, 0.82)
+          const markerA = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), accentMaterial)
+          markerA.position.copy(a)
+          group.add(markerA)
+          const markerB = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), accentMaterial)
+          markerB.position.copy(b)
+          group.add(markerB)
+        } else {
+          const normal = new THREE.Vector3(primitive.normal.x, primitive.normal.y, primitive.normal.z)
+          const normalLength = normal.length()
+          const unitNormal = normal.clone().normalize()
+          const position = unitNormal.clone().multiplyScalar((primitive.offset / normalLength) * primitiveScale)
+          const quaternion = new THREE.Quaternion().setFromUnitVectors(
+            new THREE.Vector3(0, 0, 1),
+            unitNormal,
+          )
+          const planeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x60e6ff,
+            emissive: 0x0a4050,
+            metalness: 0.12,
+            roughness: 0.34,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.34,
+          })
+
+          addPrimitiveMesh(new THREE.PlaneGeometry(7, 7, 12, 12), position, quaternion, planeMaterial)
+          line([position, position.clone().add(unitNormal.multiplyScalar(1.5))], 0xfff2c9, 0.88)
         }
       }
     } else if (mathAnalysis.kind === 'surface3d') {
@@ -1828,10 +2109,17 @@ function App() {
   const [secondary, setSecondary] = useState(false)
   const [shiftSecondary, setShiftSecondary] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [geometryComposerOpen, setGeometryComposerOpen] = useState(true)
+  const [geometryComposerKind, setGeometryComposerKind] =
+    useState<GeometryComposerKind>('circle')
+  const [geometryComposerFields, setGeometryComposerFields] = useState<Record<string, string>>(
+    () => geometryComposerDefaults.circle,
+  )
   const [expressionFocused, setExpressionFocused] = useState(false)
   const expressionInputRef = useRef<HTMLInputElement | null>(null)
   const [history, setHistory] = useState<HistoryItem[]>([
     { expression: formatExpressionInput('x^2 - 4'), value: 'function' },
+    { expression: 'sphere(r=3)', value: 'sphere' },
     { expression: '<3, 4>', value: 'vector' },
     { expression: '3 + 4i', value: 'complex' },
   ])
@@ -1853,6 +2141,16 @@ function App() {
 
       if (mathAnalysis.kind === 'geometry2d') {
         return { label: 'geometry', numeric: null, valid: true }
+      }
+
+      if (mathAnalysis.kind === 'primitive3d') {
+        return {
+          label: mathAnalysis.primitive3d?.kind === 'line3d'
+            ? '3D line'
+            : mathAnalysis.primitive3d?.kind ?? '3D object',
+          numeric: null,
+          valid: true,
+        }
       }
 
       if (mathAnalysis.kind === 'function2d') {
@@ -1881,6 +2179,7 @@ function App() {
   const isDisplayObject =
     mathAnalysis.kind === 'function2d' ||
     mathAnalysis.kind === 'geometry2d' ||
+    mathAnalysis.kind === 'primitive3d' ||
     mathAnalysis.kind === 'surface3d' ||
     mathAnalysis.kind === 'vector' ||
     mathAnalysis.kind === 'complex'
@@ -2026,6 +2325,71 @@ function App() {
       ]
     }
 
+    if (mathAnalysis.kind === 'primitive3d' && mathAnalysis.primitive3d) {
+      const primitive = mathAnalysis.primitive3d
+
+      if (primitive.kind === 'sphere') {
+        return [
+          ['type', 'sphere'],
+          ['center', formatPoint3D(primitive.center)],
+          ['radius', formatValue(primitive.radius)],
+          ['volume', formatValue(primitive.volume)],
+          ['surface area', formatValue(primitive.surfaceArea)],
+        ]
+      }
+
+      if (primitive.kind === 'cube') {
+        return [
+          ['type', 'cube'],
+          ['center', formatPoint3D(primitive.center)],
+          ['side', formatValue(primitive.side)],
+          ['space diagonal', formatValue(primitive.diagonal)],
+          ['volume', formatValue(primitive.volume)],
+          ['surface area', formatValue(primitive.surfaceArea)],
+        ]
+      }
+
+      if (primitive.kind === 'cylinder') {
+        return [
+          ['type', 'cylinder'],
+          ['center', formatPoint3D(primitive.center)],
+          ['radius', formatValue(primitive.radius)],
+          ['height', formatValue(primitive.height)],
+          ['volume', formatValue(primitive.volume)],
+          ['surface area', formatValue(primitive.surfaceArea)],
+        ]
+      }
+
+      if (primitive.kind === 'cone') {
+        return [
+          ['type', 'cone'],
+          ['center', formatPoint3D(primitive.center)],
+          ['radius', formatValue(primitive.radius)],
+          ['height', formatValue(primitive.height)],
+          ['slant height', formatValue(primitive.slantHeight)],
+          ['volume', formatValue(primitive.volume)],
+          ['surface area', formatValue(primitive.surfaceArea)],
+        ]
+      }
+
+      if (primitive.kind === 'line3d') {
+        return [
+          ['type', 'line in 3D'],
+          ['point A', formatPoint3D(primitive.a)],
+          ['point B', formatPoint3D(primitive.b)],
+          ['direction', formatPoint3D(primitive.direction)],
+          ['distance A-B', formatValue(primitive.length)],
+        ]
+      }
+
+      return [
+        ['type', 'plane'],
+        ['normal', formatPoint3D(primitive.normal)],
+        ['offset', formatValue(primitive.offset)],
+        ['distance from origin', formatValue(primitive.distanceFromOrigin)],
+      ]
+    }
+
     if (mathAnalysis.kind === 'ratio') {
       const ratio = parseSimpleDivision(expression)
       return ratio
@@ -2050,6 +2414,36 @@ function App() {
   ])
 
   const setFormattedExpression = (value: string) => setExpression(formatExpressionInput(value))
+
+  const applyGeometryExpression = (
+    kind = geometryComposerKind,
+    fields = geometryComposerFields,
+  ) => {
+    setAnalysisMode('function')
+    setVisualizationMode('auto')
+    setFormattedExpression(buildGeometryExpression(kind, fields))
+  }
+
+  const selectGeometryObject = (kind: GeometryComposerKind) => {
+    const fields = geometryComposerDefaults[kind]
+    setGeometryComposerKind(kind)
+    setGeometryComposerFields(fields)
+    applyGeometryExpression(kind, fields)
+  }
+
+  const updateGeometryField = (key: string, value: string) => {
+    const nextFields = { ...geometryComposerFields, [key]: value }
+    setGeometryComposerFields(nextFields)
+    if (geometryFieldsComplete(geometryComposerKind, nextFields)) {
+      applyGeometryExpression(geometryComposerKind, nextFields)
+    }
+  }
+
+  const generateGeometryExample = () => {
+    const fields = randomGeometryFields(geometryComposerKind)
+    setGeometryComposerFields(fields)
+    applyGeometryExpression(geometryComposerKind, fields)
+  }
 
   const handleExpressionChange = (event: ChangeEvent<HTMLInputElement>) => {
     const rawValue = event.target.value
@@ -2373,13 +2767,24 @@ function App() {
     return areas[key] ?? key
   }
 
-  const hasCoordinateViewport = mathAnalysis.kind === 'function2d' || mathAnalysis.kind === 'geometry2d'
+  const hasViewportControls =
+    mathAnalysis.kind === 'function2d' ||
+    mathAnalysis.kind === 'geometry2d' ||
+    mathAnalysis.kind === 'primitive3d' ||
+    mathAnalysis.kind === 'surface3d' ||
+    mathAnalysis.kind === 'vector' ||
+    mathAnalysis.kind === 'complex'
   const functionSymbol = getFunctionSymbol(analysisMode)
   const activeFunctionExpression =
     mathAnalysis.kind === 'function2d' ? mathAnalysis.activeExpression : expression
   const inspectedFunctionLabel =
     mathAnalysis.kind === 'function2d' ? getInspectedFunctionLabel(analysisMode, inspectX) : ''
-  const geometryViewportRows = mathAnalysis.kind === 'geometry2d' ? analysisRows.slice(1, 4) : []
+  const geometryViewportRows =
+    mathAnalysis.kind === 'geometry2d'
+      ? analysisRows.slice(1, 4)
+      : mathAnalysis.kind === 'primitive3d'
+        ? analysisRows.slice(1, 5)
+        : []
   const activeTransformExpression =
     analysisMode === 'derivative'
       ? mathAnalysis.symbolicDerivative
@@ -2388,6 +2793,23 @@ function App() {
         : null
   const resultLabel =
     mathAnalysis.kind === 'function2d' ? getFunctionResultLabel(analysisMode) : evaluated.label
+  const showViewportReadout = mathAnalysis.kind !== 'primitive3d'
+  const geometryObjectChoices: Array<{
+    icon: ReactNode
+    kind: GeometryComposerKind
+  }> = [
+    { icon: <CircleDot size={15} />, kind: 'point' },
+    { icon: <Spline size={15} />, kind: 'segment' },
+    { icon: <Circle size={15} />, kind: 'circle' },
+    { icon: <Triangle size={15} />, kind: 'triangle' },
+    { icon: <Spline size={15} />, kind: 'line3d' },
+    { icon: <Box size={15} />, kind: 'sphere' },
+    { icon: <Cuboid size={15} />, kind: 'cube' },
+    { icon: <Cylinder size={15} />, kind: 'cylinder' },
+    { icon: <Cone size={15} />, kind: 'cone' },
+    { icon: <Square size={15} />, kind: 'plane' },
+  ]
+  const geometryComposerFieldsForKind = geometryComposerConfig[geometryComposerKind].fields
 
   return (
     <main className="app-shell">
@@ -2414,7 +2836,7 @@ function App() {
               orbitEnabled={orbitEnabled}
               visualizationMode={visualizationMode}
             />
-            {hasCoordinateViewport && (
+            {hasViewportControls && (
               <div className="viewport-controls" aria-label="Graph display controls">
                 <button
                   className={axisValuesVisible ? 'active' : undefined}
@@ -2451,14 +2873,16 @@ function App() {
                 </button>
               </div>
             )}
-            <div className="viewport-readout">
-              <span>
-                {mathAnalysis.kind === 'function2d'
-                  ? getFunctionResultLabel(analysisMode)
-                  : getViewportModeLabel(mathAnalysis.kind)}
-              </span>
-              <strong>{displayExpression(activeFunctionExpression) || '0'}</strong>
-            </div>
+            {showViewportReadout && (
+              <div className="viewport-readout">
+                <span>
+                  {mathAnalysis.kind === 'function2d'
+                    ? getFunctionResultLabel(analysisMode)
+                    : getViewportModeLabel(mathAnalysis.kind)}
+                </span>
+                <strong>{displayExpression(activeFunctionExpression) || '0'}</strong>
+              </div>
+            )}
             {mathAnalysis.kind === 'function2d' && (
               <div className="viewport-inspector">
                 <span>inspect x</span>
@@ -2530,9 +2954,67 @@ function App() {
             </div>
           </div>
 
+          {geometryComposerOpen && (
+            <div className="geometry-composer" aria-label="Geometry composer">
+              <div className="geometry-kind-strip" role="tablist" aria-label="Geometry object types">
+                {geometryObjectChoices.map(({ icon, kind }) => {
+                  const config = geometryComposerConfig[kind]
+
+                  return (
+                    <button
+                      aria-selected={geometryComposerKind === kind}
+                      className={geometryComposerKind === kind ? 'active' : undefined}
+                      key={kind}
+                      onClick={() => selectGeometryObject(kind)}
+                      role="tab"
+                      type="button"
+                    >
+                      {icon}
+                      <span>{config.label}</span>
+                      <small>{config.dimension.toUpperCase()}</small>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="geometry-field-grid">
+                {geometryComposerFieldsForKind.map((field) => (
+                  <label key={field.key}>
+                    <span>{field.label}</span>
+                    <input
+                      inputMode="text"
+                      onChange={(event) => updateGeometryField(field.key, event.target.value)}
+                      spellCheck={false}
+                      value={geometryComposerFields[field.key] ?? ''}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="geometry-actions">
+                <button onClick={() => applyGeometryExpression()} type="button">
+                  <WandSparkles size={15} />
+                  <span>create</span>
+                </button>
+                <button onClick={generateGeometryExample} type="button">
+                  <Dices size={15} />
+                  <span>example</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="status-strip">
             <span>{angleMode.toUpperCase()}</span>
             <span>MEM {formatValue(memory)}</span>
+            <button
+              className={geometryComposerOpen ? 'active' : undefined}
+              onClick={() => setGeometryComposerOpen((open) => !open)}
+              type="button"
+            >
+              <Shapes size={15} />
+              <span>geometry</span>
+            </button>
             <button
               className={visualizationMode === 'fx' && analysisMode === 'function' ? 'active' : undefined}
               onClick={() => {
