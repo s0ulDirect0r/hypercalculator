@@ -337,6 +337,7 @@ const mathFunctionNames = new Set([
   'cbrt',
   'cos',
   'cosh',
+  'ln',
   'log',
   'log2',
   'log10',
@@ -542,7 +543,10 @@ const normalizeExpressionForMath = (expression: string) => {
 
 const formatExpressionForDisplay = (expression: string, divideSymbol: '/' | '÷' = '÷') =>
   formatExpressionInput(expression)
-    .replaceAll('log10', 'log')
+    .replaceAll('nthRoot', 'ʸ√')
+    .replaceAll('cbrt', '∛')
+    .replaceAll('log10', 'log₁₀')
+    .replaceAll('log2', 'log₂')
     .replaceAll('sqrt', '√')
     .replace(/\bpi\b/g, 'π')
     .replaceAll('*', '×')
@@ -597,6 +601,7 @@ const toSymbolicExpression = (expression: string) =>
   normalizeExpressionForMath(expression)
     .replaceAll('pi', 'PI')
     .replaceAll('log10', 'log')
+    .replaceAll('ln(', 'log(')
 
 const fromSymbolicExpression = (expression: string) =>
   expression
@@ -642,11 +647,26 @@ const formatValue = (value: unknown) => {
 const buildScope = (angleMode: AngleMode, extraScope: Record<string, number> = {}) => {
   const toRadians = (value: number) => (angleMode === 'deg' ? (value * Math.PI) / 180 : value)
   const fromRadians = (value: number) => (angleMode === 'deg' ? (value * 180) / Math.PI : value)
+  const nthRoot = (value: number, root: number) => {
+    if (root === 0) {
+      return NaN
+    }
+
+    const rootIsOddInteger = Number.isInteger(root) && Math.abs(root % 2) === 1
+    if (value < 0 && rootIsOddInteger) {
+      return -(Math.abs(value) ** (1 / root))
+    }
+
+    return value ** (1 / root)
+  }
 
   return {
     pi: Math.PI,
     tau: Math.PI * 2,
     e: Math.E,
+    sqrt: (value: number) => Math.sqrt(value),
+    cbrt: (value: number) => Math.cbrt(value),
+    nthRoot,
     sin: (value: number) => Math.sin(toRadians(value)),
     cos: (value: number) => Math.cos(toRadians(value)),
     tan: (value: number) => Math.tan(toRadians(value)),
@@ -656,6 +676,7 @@ const buildScope = (angleMode: AngleMode, extraScope: Record<string, number> = {
     sinh: (value: number) => Math.sinh(value),
     cosh: (value: number) => Math.cosh(value),
     tanh: (value: number) => Math.tanh(value),
+    ln: (value: number) => Math.log(value),
     log10: (value: number) => Math.log10(value),
     log2: (value: number) => Math.log2(value),
     rand: () => Math.random(),
@@ -2814,11 +2835,12 @@ function App() {
   const secondaryActive = secondary || shiftSecondary
   const keys = [
     ['(', ')', 'mc', 'm+', 'm-', 'mr', 'backspace', 'AC', '%', '/'],
-    ['2nd', 'x', 'y', '^2', '^3', '^', '7', '8', '9', '*'],
-    ['<', ',', '>', 'sqrt(', 'log(', 'log2(', '4', '5', '6', '-'],
-    ['!', secondaryActive ? 'asin(' : 'sin(', secondaryActive ? 'acos(' : 'cos(', secondaryActive ? 'atan(' : 'tan(', 'i', '*10^', '1', '2', '3', '+'],
+    ['2nd', '^2', '^3', '^', 'e^', '10^', '7', '8', '9', '*'],
+    ['reciprocal', 'sqrt(', 'cbrt(', 'nthRoot(', 'ln(', 'log10(', '4', '5', '6', '-'],
+    ['!', secondaryActive ? 'asin(' : 'sin(', secondaryActive ? 'acos(' : 'cos(', secondaryActive ? 'atan(' : 'tan(', 'e', '*10^', '1', '2', '3', '+'],
     ['Rand', 'sinh(', 'cosh(', 'tanh(', 'pi', angleMode === 'rad' ? 'Rad' : 'Deg', '+/-', '0', '.', '='],
   ]
+  const objectKeys = ['x', 'y', 'i', 'log2(', '<', ',', '>']
 
   const labelForKey = (key: string) => {
     const labels: Record<string, string> = {
@@ -2830,8 +2852,14 @@ function App() {
       '^2': 'x²',
       '^3': 'x³',
       '^': 'xʸ',
-      'sqrt(': '√x',
-      'log(': 'log',
+      '10^': '10ˣ',
+      'e^': 'eˣ',
+      reciprocal: '1/x',
+      'sqrt(': '²√x',
+      'cbrt(': '³√x',
+      'nthRoot(': 'ʸ√x',
+      'ln(': 'ln',
+      'log10(': 'log₁₀',
       'log2(': 'log₂',
       '!': 'x!',
       'sin(': secondaryActive ? 'sin⁻¹' : 'sin',
@@ -2840,6 +2868,7 @@ function App() {
       'asin(': 'sin⁻¹',
       'acos(': 'cos⁻¹',
       'atan(': 'tan⁻¹',
+      e: 'e',
       pi: 'π',
       '*10^': 'EE',
       'sinh(': 'sinh',
@@ -2894,6 +2923,7 @@ function App() {
       '7': 'seven',
       '8': 'eight',
       '9': 'nine',
+      '10^': 'ten-power',
       '<': 'less',
       '=': 'equals',
       '>': 'greater',
@@ -2905,20 +2935,26 @@ function App() {
       'asin(': 'sin',
       'atan(': 'tan',
       backspace: 'backspace',
+      'cbrt(': 'cube-root',
       'cos(': 'cos',
       'cosh(': 'cosh',
+      e: 'econst',
+      'e^': 'exp',
       i: 'imaginary',
-      'log(': 'log',
+      'ln(': 'ln',
       'log2(': 'log2',
+      'log10(': 'log10',
       m: 'memory',
       'm+': 'memory-add',
       'm-': 'memory-subtract',
       mc: 'memory-clear',
       mr: 'memory-recall',
       pi: 'pi',
+      reciprocal: 'reciprocal',
       'sin(': 'sin',
       'sinh(': 'sinh',
       'sqrt(': 'sqrt',
+      'nthRoot(': 'nth-root',
       'tan(': 'tan',
       'tanh(': 'tanh',
       x: 'xvar',
@@ -3260,6 +3296,21 @@ function App() {
               ))}
             </div>
           )}
+
+          <div className="object-key-strip" aria-label="Math object keys">
+            {objectKeys.map((key) => (
+              <button
+                aria-label={labelForKey(key)}
+                className={`calc-key ${keyClass(key)}`}
+                data-key-area={keyArea(key)}
+                key={key}
+                onClick={() => handleInput(key)}
+                type="button"
+              >
+                {labelForKey(key)}
+              </button>
+            ))}
+          </div>
 
           <div className="keypad" aria-label="Calculator keypad">
             {keys.flat().map((key) => (

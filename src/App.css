@@ -221,6 +221,7 @@
     'composer'
     'status'
     'history'
+    'objectkeys'
     'keypad';
   grid-template-columns: 1fr;
   gap: 12px;
@@ -622,6 +623,21 @@
   gap: 10px;
 }
 
+.object-key-strip {
+  grid-area: objectkeys;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.object-key-strip .calc-key {
+  min-height: 42px;
+  aspect-ratio: auto;
+  border-radius: 14px;
+  color: rgba(244, 248, 255, 0.82);
+  font-size: clamp(13px, 1.2vw, 17px);
+}
+
 .calc-key {
   min-width: 0;
   aspect-ratio: 1.28 / 1;
@@ -741,9 +757,9 @@ button:focus-visible {
     grid-template-columns: repeat(12, minmax(0, 1fr));
     grid-template-areas:
       'lparen lparen rparen rparen memory-clear memory-clear memory-add memory-add memory-subtract memory-subtract memory-recall memory-recall'
-      'second second xvar xvar yvar yvar power-two power-two power-three power-three power power'
-      'less less comma comma greater greater sqrt sqrt log log log2 log2'
-      'factorial factorial sin sin cos cos tan tan imaginary imaginary ee ee'
+      'second second power-two power-two power-three power-three power power exp exp ten-power ten-power'
+      'reciprocal reciprocal sqrt sqrt cube-root cube-root nth-root nth-root ln ln log10 log10'
+      'factorial factorial sin sin cos cos tan tan econst econst ee ee'
       'rand rand sinh sinh cosh cosh tanh tanh pi pi angle angle'
       'backspace backspace backspace clear clear clear percent percent percent divide divide divide'
       'seven seven seven eight eight eight nine nine nine multiply multiply multiply'
@@ -793,12 +809,36 @@ button:focus-visible {
     grid-area: power;
   }
 
+  .calc-key[data-key-area='exp'] {
+    grid-area: exp;
+  }
+
+  .calc-key[data-key-area='ten-power'] {
+    grid-area: ten-power;
+  }
+
+  .calc-key[data-key-area='reciprocal'] {
+    grid-area: reciprocal;
+  }
+
   .calc-key[data-key-area='sqrt'] {
     grid-area: sqrt;
   }
 
-  .calc-key[data-key-area='log'] {
-    grid-area: log;
+  .calc-key[data-key-area='cube-root'] {
+    grid-area: cube-root;
+  }
+
+  .calc-key[data-key-area='nth-root'] {
+    grid-area: nth-root;
+  }
+
+  .calc-key[data-key-area='ln'] {
+    grid-area: ln;
+  }
+
+  .calc-key[data-key-area='log10'] {
+    grid-area: log10;
   }
 
   .calc-key[data-key-area='sin'] {
@@ -819,6 +859,10 @@ button:focus-visible {
 
   .calc-key[data-key-area='imaginary'] {
     grid-area: imaginary;
+  }
+
+  .calc-key[data-key-area='econst'] {
+    grid-area: econst;
   }
 
   .calc-key[data-key-area='sinh'] {
@@ -1018,4 +1062,8 @@ button:focus-visible {
     max-width: 100%;
     text-align: left;
   }
+}
+
+.object-key-strip .calc-key {
+  grid-area: auto;
 }
