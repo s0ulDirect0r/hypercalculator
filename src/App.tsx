@@ -397,9 +397,59 @@ const toSuperscript = (value: string) =>
 const fromSuperscript = (value: string) =>
   value.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]/g, (character) => plainFromSuperscript[character] ?? character)
 
+const formatExponentsInput = (expression: string) => {
+  let formatted = ''
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index]
+    const previousFormattedCharacter = formatted.at(-1) ?? ''
+
+    if (character === '^') {
+      let exponentEnd = index + 1
+      if (expression[exponentEnd] === '-') {
+        exponentEnd += 1
+      }
+
+      while (/\d/.test(expression[exponentEnd] ?? '')) {
+        exponentEnd += 1
+      }
+
+      const exponent = expression.slice(index + 1, exponentEnd)
+      const nextCharacter = expression[exponentEnd]
+      const isChainedExponent = /\^-?\d+$/.test(expression.slice(0, index))
+      const canFormatExponent =
+        exponent.length > 0 &&
+        exponent !== '-' &&
+        !superscriptCharacters.includes(previousFormattedCharacter) &&
+        !isChainedExponent &&
+        nextCharacter !== '^'
+
+      if (canFormatExponent) {
+        formatted += toSuperscript(exponent)
+        index = exponentEnd - 1
+        continue
+      }
+    }
+
+    if (superscriptCharacters.includes(character)) {
+      let digitEnd = index + 1
+      while (/\d/.test(expression[digitEnd] ?? '')) {
+        digitEnd += 1
+      }
+
+      formatted += `${character}${toSuperscript(expression.slice(index + 1, digitEnd))}`
+      index = digitEnd - 1
+      continue
+    }
+
+    formatted += character
+  }
+
+  return formatted
+}
+
 const formatExpressionInput = (expression: string) =>
-  expression
-    .replace(/\^(-?\d+)/g, (_, exponent: string) => toSuperscript(exponent))
+  formatExponentsInput(expression)
     .replace(
       /(?<![0-9A-Za-z.)\]}>⁰¹²³⁴⁵⁶⁷⁸⁹⁻])([1-9])\/(10|[2-9])(?![0-9A-Za-z({[<⁰¹²³⁴⁵⁶⁷⁸⁹⁻])/g,
       (match) => vulgarFractionFromPlain[match] ?? match,
@@ -1132,16 +1182,62 @@ const toggleSign = (expression: string) => {
   return `${expression.slice(0, match.index)}${nextValue}`
 }
 
+const expressionEndsWithBinaryOperator = (expression: string) => /[+\-*/]$/.test(expression)
+
+const currentNumberHasDecimal = (expression: string) => {
+  const normalizedExpression = expandFormattedExponents(expression)
+  const currentNumber = normalizedExpression.split(/[+\-*/^(),]/).at(-1) ?? ''
+  return currentNumber.includes('.')
+}
+
 const appendToken = (expression: string, token: string) => {
+  const currentExpression = expression.trim() || '0'
+  const lastCharacter = currentExpression.at(-1) ?? ''
+  const tokenIsBinaryOperator = ['+', '-', '*', '/'].includes(token)
   const tokenStartsExpression =
     /^\d/.test(token) || /^[A-Za-z<[]/.test(token) || token === '(' || token === '-'
 
-  if (expression === '0' && tokenStartsExpression) {
+  if (token === '.') {
+    if (currentNumberHasDecimal(currentExpression)) {
+      return currentExpression
+    }
+
+    if (currentExpression === '0') {
+      return '0.'
+    }
+
+    if (/[+\-*/^(,]$/.test(currentExpression)) {
+      return `${currentExpression}0.`
+    }
+  }
+
+  if (tokenIsBinaryOperator) {
+    if (currentExpression === '0') {
+      return token === '-' ? '-' : `0${token}`
+    }
+
+    if (currentExpression === '-') {
+      return token === '-' ? currentExpression : `0${token}`
+    }
+
+    if (expressionEndsWithBinaryOperator(currentExpression) || lastCharacter === '^') {
+      return `${currentExpression.slice(0, -1)}${token}`
+    }
+
+    if ((lastCharacter === '(' || lastCharacter === ',') && token !== '-') {
+      return currentExpression
+    }
+  }
+
+  if (currentExpression === '0' && tokenStartsExpression) {
     return token
   }
 
-  return `${expression}${token}`
+  return `${currentExpression}${token}`
 }
+
+const shouldContinueEvaluatedResult = (token: string) =>
+  ['+', '-', '*', '/', '^', '^2', '^3'].includes(token)
 
 const GRAPH_SCALE = 0.55
 const MAX_GRAPH_EXTENT = 50
@@ -2170,6 +2266,7 @@ function App() {
   const [memory, setMemory] = useState(0)
   const [secondary, setSecondary] = useState(false)
   const [shiftSecondary, setShiftSecondary] = useState(false)
+  const [lastActionWasEvaluation, setLastActionWasEvaluation] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [geometryComposerOpen, setGeometryComposerOpen] = useState(true)
   const [geometryComposerKind, setGeometryComposerKind] =
@@ -2428,7 +2525,10 @@ function App() {
     mathAnalysis,
   ])
 
-  const setFormattedExpression = (value: string) => setExpression(formatExpressionInput(value))
+  const setFormattedExpression = (value: string) => {
+    setExpression(value)
+    setLastActionWasEvaluation(false)
+  }
 
   const commitExpression = (
     value: string,
@@ -2437,7 +2537,7 @@ function App() {
       nextVisualizationMode?: VisualizationMode
     } = {},
   ) => {
-    const nextExpression = formatExpressionInput(value.trim() || '0')
+    const nextExpression = value.trim() || '0'
     const nextAnalysisMode = options.nextAnalysisMode ?? analysisMode
     const nextVisualizationMode = options.nextVisualizationMode ?? visualizationMode
 
@@ -2452,12 +2552,15 @@ function App() {
     const nextEvaluation = evaluateMathAnalysis(nextExpression, angleMode, nextAnalysis)
     setExpression(nextExpression)
     setCommittedExpression(nextExpression)
+    setLastActionWasEvaluation(false)
 
     if (nextEvaluation.valid) {
       setHistory((items) =>
         [{ expression: nextExpression, value: nextEvaluation.label }, ...items].slice(0, 7),
       )
     }
+
+    return nextEvaluation.valid
   }
 
   const draftGeometryExpression = (
@@ -2496,30 +2599,9 @@ function App() {
   }
 
   const handleExpressionChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const rawValue = event.target.value
-    const selectionStart = event.target.selectionStart ?? rawValue.length
-    const selectionEnd = event.target.selectionEnd ?? selectionStart
-    const nextValue = formatExpressionInput(rawValue)
-    const nextSelectionStart = formatExpressionInput(rawValue.slice(0, selectionStart)).length
-    const nextSelectionEnd = formatExpressionInput(rawValue.slice(0, selectionEnd)).length
-    const safeSelectionStart = Math.min(nextSelectionStart, nextValue.length)
-    const safeSelectionEnd = Math.min(nextSelectionEnd, nextValue.length)
-
-    setExpression(nextValue)
-
-    requestAnimationFrame(() => {
-      const input = expressionInputRef.current
-
-      if (!input) {
-        return
-      }
-
-      const currentLength = input.value.length
-      input.setSelectionRange(
-        Math.min(safeSelectionStart, currentLength),
-        Math.min(safeSelectionEnd, currentLength),
-      )
-    })
+    const rawValue = event.target.value.replace(/^(-?)0+(?=\d)/, '$1')
+    setExpression(rawValue)
+    setLastActionWasEvaluation(false)
   }
 
   const updateInspectX = (value: number) => {
@@ -2537,7 +2619,27 @@ function App() {
     })
   }
 
-  const commitEvaluation = () => commitExpression(expression)
+  const commitEvaluation = () => {
+    const committed = commitExpression(expression)
+    setLastActionWasEvaluation(committed)
+  }
+
+  const getAppendBaseExpression = (current: string, token: string) => {
+    if (
+      lastActionWasEvaluation &&
+      shouldContinueEvaluatedResult(token) &&
+      evaluated.numeric !== null &&
+      Number.isFinite(evaluated.numeric)
+    ) {
+      return String(evaluated.numeric)
+    }
+
+    if (lastActionWasEvaluation && !shouldContinueEvaluatedResult(token)) {
+      return '0'
+    }
+
+    return current
+  }
 
   const handleInput = (token: string) => {
     switch (token) {
@@ -2547,9 +2649,11 @@ function App() {
         setAnalysisMode('function')
         setVisualizationMode('auto')
         setOrbitEnabled(false)
+        setLastActionWasEvaluation(false)
         return
       case 'backspace':
         setExpression((current) => (current.length <= 1 ? '0' : current.slice(0, -1)))
+        setLastActionWasEvaluation(false)
         return
       case '=':
         commitEvaluation()
@@ -2577,16 +2681,46 @@ function App() {
         }
         return
       case 'mr':
-        setExpression((current) => formatExpressionInput(appendToken(current, String(memory))))
+        setExpression((current) =>
+          appendToken(getAppendBaseExpression(current, String(memory)), String(memory)),
+        )
+        setLastActionWasEvaluation(false)
         return
       case '%':
-        setExpression((current) => formatExpressionInput(insertPercent(current)))
+        setExpression((current) => {
+          const baseExpression =
+            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+              ? String(evaluated.numeric)
+              : current
+          return insertPercent(baseExpression)
+        })
+        setLastActionWasEvaluation(false)
         return
       case '+/-':
-        setExpression((current) => formatExpressionInput(toggleSign(current)))
+        setExpression((current) => {
+          const baseExpression =
+            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+              ? String(evaluated.numeric)
+              : current
+          return toggleSign(baseExpression)
+        })
+        setLastActionWasEvaluation(false)
         return
       case 'Rand':
-        setExpression((current) => formatExpressionInput(appendToken(current, 'rand()')))
+        setExpression((current) => appendToken(getAppendBaseExpression(current, 'rand()'), 'rand()'))
+        setLastActionWasEvaluation(false)
+        return
+      case 'reciprocal':
+        setExpression((current) => {
+          const baseExpression =
+            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+              ? String(evaluated.numeric)
+              : current
+          const normalized = baseExpression.trim()
+          const nextExpression = normalized && normalized !== '0' ? `1/(${normalized})` : '1/('
+          return nextExpression
+        })
+        setLastActionWasEvaluation(false)
         return
       case 'sample-function':
         commitExpression('x^2 - 4', { nextAnalysisMode: 'function', nextVisualizationMode: 'fx' })
@@ -2607,7 +2741,10 @@ function App() {
         commitExpression('sin(x) * cos(y)', { nextAnalysisMode: 'function', nextVisualizationMode: 'fxy' })
         return
       default:
-        setExpression((current) => formatExpressionInput(appendToken(current, token)))
+        setExpression((current) =>
+          appendToken(getAppendBaseExpression(current, token), token),
+        )
+        setLastActionWasEvaluation(false)
     }
   }
 

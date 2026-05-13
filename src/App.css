@@ -252,12 +252,15 @@
 }
 
 .expression-input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   width: 100%;
   min-height: 38px;
   overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: rgba(244, 248, 255, 0.62);
+  border: 0;
+  color: transparent;
+  caret-color: transparent;
   background: transparent;
   font-size: clamp(18px, 2vw, 34px);
   font-family: inherit;
@@ -265,9 +268,12 @@
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+  appearance: none;
 }
 
 .expression-render {
+  position: relative;
+  z-index: 1;
   width: 100%;
   min-height: 38px;
   overflow: hidden;
@@ -282,14 +288,7 @@
 }
 
 .expression-editor.rendered .expression-input {
-  position: absolute;
-  inset: 0;
   opacity: 0;
-  pointer-events: none;
-}
-
-.expression-editor.editing .expression-render {
-  display: none;
 }
 
 .math-run {
@@ -316,7 +315,6 @@
 
 .function-display .expression-input {
   min-height: 58px;
-  color: #f4f8ff;
   font-size: clamp(38px, 4.5vw, 68px);
   font-weight: 560;
   line-height: 0.98;
@@ -335,9 +333,7 @@
 }
 
 .expression-input:focus {
-  border-color: rgba(110, 231, 255, 0.4);
   outline: none;
-  background: rgba(110, 231, 255, 0.055);
 }
 
 .transform-line {
