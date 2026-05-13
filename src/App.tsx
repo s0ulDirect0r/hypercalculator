@@ -1,10 +1,9 @@
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { evaluate } from 'mathjs'
 import nerdamer from 'nerdamer'
 import 'nerdamer/Calculus'
 import {
   Delete,
-  FunctionSquare,
   Hash,
   History,
   RotateCcw,
@@ -19,17 +18,6 @@ type AngleMode = 'rad' | 'deg'
 type VisualizationMode = 'auto' | 'fx' | 'fxy'
 type AnalysisMode = 'function' | 'derivative' | 'integral'
 type MathObjectKind = 'complex' | 'function2d' | 'geometry2d' | 'ratio' | 'scalar' | 'surface3d' | 'vector'
-type ConceptTarget =
-  | 'complex'
-  | 'derivative'
-  | 'function'
-  | 'geometry'
-  | 'integral'
-  | 'ratio'
-  | 'scalar'
-  | 'surface'
-  | 'vector'
-type GeneratorIntent = 'easier' | 'harder' | 'same' | 'surprise'
 type HistoryItem = {
   expression: string
   value: string
@@ -113,29 +101,8 @@ type MathToken = {
   value: string
 }
 
-type GeneratedExample = {
-  analysisMode: AnalysisMode
-  expression: string
-  visualizationMode: VisualizationMode
-}
-
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
-
-const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)]
-
-const randomInt = (min: number, max: number) =>
-  Math.floor(Math.random() * (max - min + 1)) + min
-
-const randomNonZeroInt = (min: number, max: number) => {
-  let value = 0
-
-  while (value === 0) {
-    value = randomInt(min, max)
-  }
-
-  return value
-}
 
 const mathFunctionNames = new Set([
   'abs',
@@ -298,7 +265,7 @@ const normalizeExpressionForMath = (expression: string) => {
   }, '')
 }
 
-const displayExpression = (expression: string) =>
+const formatExpressionForDisplay = (expression: string, divideSymbol: '/' | '÷' = '÷') =>
   formatExpressionInput(expression)
     .replaceAll('log10', 'log')
     .replaceAll('sqrt', '√')
@@ -306,7 +273,50 @@ const displayExpression = (expression: string) =>
     .replaceAll('*', '×')
     .replace(/(?<=[0-9πe)])×(?=[xytπe√(])/g, '')
     .replace(/(?<=[xyt])×(?=\()/g, '')
-    .replaceAll('/', '÷')
+    .replaceAll('/', divideSymbol)
+
+const displayExpression = (expression: string) => formatExpressionForDisplay(expression, '÷')
+
+const renderMathExpression = (expression: string): ReactNode[] => {
+  const formatted = formatExpressionForDisplay(expression, '/').replace(
+    /[¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/g,
+    (fraction) => plainFromVulgarFraction[fraction] ?? fraction,
+  )
+  const nodes: ReactNode[] = []
+  const fractionPattern = /(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/g
+  let cursor = 0
+  let match: RegExpExecArray | null
+
+  while ((match = fractionPattern.exec(formatted))) {
+    if (match.index > cursor) {
+      nodes.push(
+        <span className="math-run" key={`text-${cursor}`}>
+          {formatted.slice(cursor, match.index)}
+        </span>,
+      )
+    }
+
+    nodes.push(
+      <span className="math-fraction" key={`fraction-${match.index}`}>
+        <span className="math-numerator">{match[1]}</span>
+        <span className="math-fraction-line" />
+        <span className="math-denominator">{match[2]}</span>
+      </span>,
+    )
+
+    cursor = match.index + match[0].length
+  }
+
+  if (cursor < formatted.length) {
+    nodes.push(
+      <span className="math-run" key={`text-${cursor}`}>
+        {formatted.slice(cursor)}
+      </span>,
+    )
+  }
+
+  return nodes.length > 0 ? nodes : [formatted]
+}
 
 const toSymbolicExpression = (expression: string) =>
   normalizeExpressionForMath(expression)
@@ -397,9 +407,13 @@ const evaluateNumeric = (
   angleMode: AngleMode,
   extraScope?: Record<string, number>,
 ) => {
-  const value = tryEvaluate(expression, angleMode, extraScope)
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : null
+  try {
+    const value = tryEvaluate(expression, angleMode, extraScope)
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : null
+  } catch {
+    return null
+  }
 }
 
 const parseSimpleDivision = (expression: string): DivisionParts | null => {
@@ -938,174 +952,6 @@ const makeAnalysis = (
     symbolicIntegral,
     vector,
     yIntercept: isFunction ? evaluateRawForPoint(activeExpression, angleMode, 0) : null,
-  }
-}
-
-const makePolynomialExample = (difficulty: GeneratorIntent) => {
-  if (difficulty === 'easier') {
-    const root = randomInt(-6, 6)
-    const slope = randomNonZeroInt(-5, 5)
-    return `${slope === 1 ? '' : slope === -1 ? '-' : slope}x ${root < 0 ? '+ ' : '- '}${Math.abs(root)}`
-  }
-
-  if (difficulty === 'harder') {
-    const a = randomNonZeroInt(-3, 3)
-    const b = randomNonZeroInt(-4, 4)
-    const c = randomInt(-8, 8)
-    return `${a === 1 ? '' : a === -1 ? '-' : a}x^3 ${b < 0 ? '- ' : '+ '}${Math.abs(b)}x ${c < 0 ? '- ' : '+ '}${Math.abs(c)}`
-  }
-
-  const rootA = randomNonZeroInt(-5, 5)
-  const rootB = randomNonZeroInt(-5, 5)
-  return `(x ${rootA < 0 ? '+ ' : '- '}${Math.abs(rootA)})(x ${rootB < 0 ? '+ ' : '- '}${Math.abs(rootB)})`
-}
-
-const makeGeneratedExample = (
-  intent: GeneratorIntent,
-  currentKind: MathObjectKind,
-  currentAnalysisMode: AnalysisMode,
-): GeneratedExample => {
-  const targetKind =
-    intent === 'surprise'
-      ? pick<MathObjectKind>(['complex', 'function2d', 'geometry2d', 'ratio', 'scalar', 'surface3d', 'vector'])
-      : currentKind === 'scalar' && intent === 'same'
-        ? 'function2d'
-        : currentKind
-  const targetAnalysisMode =
-    targetKind === 'function2d'
-      ? intent === 'surprise'
-        ? pick<AnalysisMode>(['function', 'derivative', 'integral'])
-        : currentAnalysisMode
-      : 'function'
-
-  if (targetKind === 'function2d') {
-    const functionByMode: Record<AnalysisMode, string[]> = {
-      derivative:
-        intent === 'harder'
-          ? ['x^4 - 4x^2', 'sin(x) + x^2/3', 'x^3 - 6x + 2']
-          : intent === 'easier'
-            ? ['x^2', '2x + 1', 'x^2 - 1']
-            : ['x^3 - 3x', 'x^2 - 4', 'sin(x) + x'],
-      function:
-        intent === 'harder'
-          ? ['x^3 - 6x + 2', 'sin(x) + cos(2x)', '(x - 2)(x + 1)(x + 4)']
-          : intent === 'easier'
-            ? ['x - 3', 'x^2 - 4', '2x + 5']
-            : [makePolynomialExample(intent), 'x^2 - 9', 'sin(x)'],
-      integral:
-        intent === 'harder'
-          ? ['x^3 - 4x', 'sin(x) + x/2', 'cos(x) - x^2/5']
-          : intent === 'easier'
-            ? ['x', 'x^2', 'sin(x)']
-            : ['sin(x)', 'x^2 - 1', 'cos(x)'],
-    }
-
-    return {
-      analysisMode: targetAnalysisMode,
-      expression: pick(functionByMode[targetAnalysisMode]),
-      visualizationMode: 'fx',
-    }
-  }
-
-  if (targetKind === 'surface3d') {
-    const examples =
-      intent === 'harder'
-        ? ['sin(sqrt(x^2 + y^2))', 'x^2 - y^2', 'sin(x*y) / 2']
-        : intent === 'easier'
-          ? ['x + y', 'x^2 + y^2', 'sin(x)']
-          : ['sin(x) * cos(y)', 'x^2 - y^2', 'cos(x) + sin(y)']
-
-    return {
-      analysisMode: 'function',
-      expression: pick(examples),
-      visualizationMode: 'fxy',
-    }
-  }
-
-  if (targetKind === 'geometry2d') {
-    const examples =
-      intent === 'harder'
-        ? [
-            'triangle((-4,-2),(3,-1),(1,4))',
-            'circle((1,-1),4)',
-            'segment((-5,3),(4,-2))',
-          ]
-        : intent === 'easier'
-          ? [
-              'point(2,3)',
-              'segment((0,0),(3,4))',
-              'circle((0,0),3)',
-            ]
-          : [
-              'circle((0,0),3)',
-              'segment((-3,-2),(4,2))',
-              'triangle((0,0),(4,0),(0,3))',
-            ]
-
-    return {
-      analysisMode: 'function',
-      expression: pick(examples),
-      visualizationMode: 'auto',
-    }
-  }
-
-  if (targetKind === 'vector') {
-    const range = intent === 'harder' ? 9 : intent === 'easier' ? 4 : 7
-    return {
-      analysisMode: 'function',
-      expression: `<${randomNonZeroInt(-range, range)}, ${randomNonZeroInt(-range, range)}>`,
-      visualizationMode: 'auto',
-    }
-  }
-
-  if (targetKind === 'complex') {
-    const range = intent === 'harder' ? 9 : intent === 'easier' ? 4 : 7
-    const re = randomNonZeroInt(-range, range)
-    const im = randomNonZeroInt(-range, range)
-    return {
-      analysisMode: 'function',
-      expression: `${re} ${im < 0 ? '-' : '+'} ${Math.abs(im)}i`,
-      visualizationMode: 'auto',
-    }
-  }
-
-  if (targetKind === 'ratio') {
-    const denominator = intent === 'harder' ? randomInt(7, 16) : randomInt(2, 9)
-    const numerator = randomInt(denominator + 1, denominator * (intent === 'harder' ? 4 : 2))
-    return {
-      analysisMode: 'function',
-      expression: `${numerator}/${denominator}`,
-      visualizationMode: 'auto',
-    }
-  }
-
-  return {
-    analysisMode: 'function',
-    expression: String(randomInt(-20, 20)),
-    visualizationMode: 'auto',
-  }
-}
-
-const makeGeneratedExampleForConcept = (concept: ConceptTarget): GeneratedExample => {
-  switch (concept) {
-    case 'complex':
-      return makeGeneratedExample('same', 'complex', 'function')
-    case 'derivative':
-      return makeGeneratedExample('same', 'function2d', 'derivative')
-    case 'function':
-      return makeGeneratedExample('same', 'function2d', 'function')
-    case 'geometry':
-      return makeGeneratedExample('same', 'geometry2d', 'function')
-    case 'integral':
-      return makeGeneratedExample('same', 'function2d', 'integral')
-    case 'ratio':
-      return makeGeneratedExample('same', 'ratio', 'function')
-    case 'scalar':
-      return makeGeneratedExample('same', 'scalar', 'function')
-    case 'surface':
-      return makeGeneratedExample('same', 'surface3d', 'function')
-    case 'vector':
-      return makeGeneratedExample('same', 'vector', 'function')
   }
 }
 
@@ -1980,6 +1826,8 @@ function App() {
   const [orbitEnabled, setOrbitEnabled] = useState(false)
   const [memory, setMemory] = useState(0)
   const [secondary, setSecondary] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [expressionFocused, setExpressionFocused] = useState(false)
   const expressionInputRef = useRef<HTMLInputElement | null>(null)
   const [history, setHistory] = useState<HistoryItem[]>([
     { expression: formatExpressionInput('x^2 - 4'), value: 'function' },
@@ -2035,23 +1883,6 @@ function App() {
     mathAnalysis.kind === 'surface3d' ||
     mathAnalysis.kind === 'vector' ||
     mathAnalysis.kind === 'complex'
-  const activeObjects = useMemo(() => {
-    const trimmedExpression = expression.trim()
-
-    if (!trimmedExpression || trimmedExpression === '0') {
-      return []
-    }
-
-    return [
-      {
-        expression,
-        label:
-          mathAnalysis.kind === 'function2d'
-            ? getFunctionResultLabel(analysisMode)
-            : getViewportModeLabel(mathAnalysis.kind),
-      },
-    ]
-  }, [analysisMode, expression, mathAnalysis.kind])
 
   const inspectedActiveValue = useMemo(
     () =>
@@ -2217,48 +2048,6 @@ function App() {
     mathAnalysis,
   ])
 
-  const generatorContext =
-    mathAnalysis.kind === 'function2d'
-      ? analysisMode === 'derivative'
-        ? 'derivative'
-        : analysisMode === 'integral'
-          ? 'integral'
-          : 'function'
-      : getViewportModeLabel(mathAnalysis.kind)
-  const activeConcept: ConceptTarget =
-    mathAnalysis.kind === 'function2d'
-      ? analysisMode === 'derivative'
-        ? 'derivative'
-        : analysisMode === 'integral'
-          ? 'integral'
-          : 'function'
-      : mathAnalysis.kind === 'geometry2d'
-        ? 'geometry'
-      : mathAnalysis.kind === 'surface3d'
-        ? 'surface'
-        : mathAnalysis.kind === 'vector'
-          ? 'vector'
-          : mathAnalysis.kind === 'complex'
-            ? 'complex'
-            : mathAnalysis.kind === 'ratio'
-              ? 'ratio'
-              : 'scalar'
-  const conceptOptions: Array<{
-    description: string
-    label: string
-    target: ConceptTarget
-  }> = [
-    { description: 'algebraic graph', label: 'Function', target: 'function' },
-    { description: 'tangent and slope', label: 'Derivative', target: 'derivative' },
-    { description: 'signed area', label: 'Integral', target: 'integral' },
-    { description: 'points and shapes', label: 'Geometry', target: 'geometry' },
-    { description: 'magnitude and angle', label: 'Vector', target: 'vector' },
-    { description: 'complex plane', label: 'Complex', target: 'complex' },
-    { description: 'partitioned quotient', label: 'Ratio', target: 'ratio' },
-    { description: 'number line', label: 'Scalar', target: 'scalar' },
-    { description: 'two-variable surface', label: 'Surface', target: 'surface' },
-  ]
-
   const setFormattedExpression = (value: string) => setExpression(formatExpressionInput(value))
 
   const handleExpressionChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -2268,11 +2057,23 @@ function App() {
     const nextValue = formatExpressionInput(rawValue)
     const nextSelectionStart = formatExpressionInput(rawValue.slice(0, selectionStart)).length
     const nextSelectionEnd = formatExpressionInput(rawValue.slice(0, selectionEnd)).length
+    const safeSelectionStart = Math.min(nextSelectionStart, nextValue.length)
+    const safeSelectionEnd = Math.min(nextSelectionEnd, nextValue.length)
 
     setExpression(nextValue)
 
     requestAnimationFrame(() => {
-      expressionInputRef.current?.setSelectionRange(nextSelectionStart, nextSelectionEnd)
+      const input = expressionInputRef.current
+
+      if (!input) {
+        return
+      }
+
+      const currentLength = input.value.length
+      input.setSelectionRange(
+        Math.min(safeSelectionStart, currentLength),
+        Math.min(safeSelectionEnd, currentLength),
+      )
     })
   }
 
@@ -2289,22 +2090,6 @@ function App() {
       const factor = direction === 'in' ? 1.25 : 0.8
       return Number(clamp(value * factor, 0.5, 4).toFixed(2))
     })
-  }
-
-  const generateExample = (intent: GeneratorIntent) => {
-    const generated = makeGeneratedExample(intent, mathAnalysis.kind, analysisMode)
-    setAnalysisMode(generated.analysisMode)
-    setVisualizationMode(generated.visualizationMode)
-    setOrbitEnabled(false)
-    setFormattedExpression(generated.expression)
-  }
-
-  const selectConcept = (concept: ConceptTarget) => {
-    const generated = makeGeneratedExampleForConcept(concept)
-    setAnalysisMode(generated.analysisMode)
-    setVisualizationMode(generated.visualizationMode)
-    setOrbitEnabled(false)
-    setFormattedExpression(generated.expression)
   }
 
   const commitEvaluation = () => {
@@ -2534,66 +2319,6 @@ function App() {
         </header>
 
         <div className="workspace">
-          <aside className="side-panel">
-            <div className="panel-heading">
-              <FunctionSquare size={18} />
-              <span>objects</span>
-            </div>
-            {activeObjects.length > 0 ? (
-              activeObjects.map((object) => (
-                <button
-                  className="object-card active"
-                  key={object.expression}
-                  type="button"
-                  onClick={() => setFormattedExpression(object.expression)}
-                >
-                  {displayExpression(object.expression)}
-                  <strong>{object.label}</strong>
-                </button>
-              ))
-            ) : (
-              <div className="empty-state">No active object</div>
-            )}
-
-            <div className="panel-heading library-heading">
-              <span>types</span>
-            </div>
-            <div className="type-grid">
-              {conceptOptions.map((option) => (
-                <button
-                  className={`type-button ${activeConcept === option.target ? 'active' : ''}`}
-                  key={option.target}
-                  type="button"
-                  onClick={() => selectConcept(option.target)}
-                  title={option.description}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="panel-heading library-heading">
-              <span>generate</span>
-            </div>
-            <div className="generator-context">based on {generatorContext}</div>
-            <button className="library-button" type="button" onClick={() => generateExample('same')}>
-              Same type
-              <strong>new {generatorContext}</strong>
-            </button>
-            <button className="library-button" type="button" onClick={() => generateExample('easier')}>
-              Easier
-              <strong>lower complexity</strong>
-            </button>
-            <button className="library-button" type="button" onClick={() => generateExample('harder')}>
-              Harder
-              <strong>more structure</strong>
-            </button>
-            <button className="library-button surprise" type="button" onClick={() => generateExample('surprise')}>
-              Surprise
-              <strong>any object</strong>
-            </button>
-          </aside>
-
           <section className="visual-panel">
             <MathViewport
               analysisMode={analysisMode}
@@ -2678,78 +2403,33 @@ function App() {
               </div>
             )}
           </section>
-
-          <aside className="history-panel analysis-panel">
-            <div className="panel-heading">
-              <History size={18} />
-              <span>analysis</span>
-            </div>
-            <div className="analysis-cards">
-              {analysisRows.map(([label, value]) => (
-                <div className="analysis-card" key={label}>
-                  <span>{label}</span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
-            </div>
-            {mathAnalysis.kind === 'function2d' && (
-              <div className="inspect-control">
-                <label htmlFor="inspect-x">
-                  <span>inspect x</span>
-                  <strong>{formatValue(inspectX)}</strong>
-                </label>
-                <input
-                  aria-label="Inspect x"
-                  id="inspect-x"
-                  max={MAX_GRAPH_EXTENT}
-                  min={-MAX_GRAPH_EXTENT}
-                  onChange={(event) => updateInspectX(Number(event.target.value))}
-                  step={0.1}
-                  type="range"
-                  value={inspectX}
-                />
-                <input
-                  aria-label="Inspect x value"
-                  max={MAX_GRAPH_EXTENT}
-                  min={-MAX_GRAPH_EXTENT}
-                  onChange={(event) => updateInspectX(Number(event.target.value))}
-                  step={0.01}
-                  type="number"
-                  value={inspectX}
-                />
-              </div>
-            )}
-            <div className="panel-heading history-heading">
-              <span>history</span>
-            </div>
-            {history.map((item, index) => (
-              <button
-                type="button"
-                key={`${item.expression}-${index}`}
-                onClick={() => setFormattedExpression(item.expression)}
-              >
-                <span>{displayExpression(item.expression)}</span>
-                <strong>{item.value}</strong>
-              </button>
-            ))}
-          </aside>
         </div>
 
         <section className="calculator-deck">
           <div className={`display-strip ${isDisplayObject ? 'function-display' : ''}`}>
-            <input
-              aria-label="Expression"
-              className="expression-input"
-              onChange={handleExpressionChange}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  commitEvaluation()
-                }
-              }}
-              ref={expressionInputRef}
-              spellCheck={false}
-              value={expression}
-            />
+            <div
+              className={`expression-editor ${expressionFocused ? 'editing' : 'rendered'}`}
+              onClick={() => expressionInputRef.current?.focus()}
+            >
+              <input
+                aria-label="Expression"
+                className="expression-input"
+                onBlur={() => setExpressionFocused(false)}
+                onChange={handleExpressionChange}
+                onFocus={() => setExpressionFocused(true)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    commitEvaluation()
+                  }
+                }}
+                ref={expressionInputRef}
+                spellCheck={false}
+                value={expression}
+              />
+              <div className="expression-render" aria-hidden="true">
+                {renderMathExpression(expression)}
+              </div>
+            </div>
             {mathAnalysis.kind === 'function2d' && analysisMode !== 'function' && (
               <div className={`transform-line ${activeTransformExpression ? '' : 'unavailable'}`}>
                 <span>{functionSymbol} =</span>
@@ -2819,10 +2499,36 @@ function App() {
             >
               orbit
             </button>
+            <button
+              className={historyOpen ? 'active' : undefined}
+              onClick={() => setHistoryOpen((open) => !open)}
+              type="button"
+            >
+              <History size={15} />
+              <span>history</span>
+            </button>
             <button type="button" onClick={() => setFormattedExpression('0')} aria-label="Clear expression">
               <RotateCcw size={15} />
             </button>
           </div>
+
+          {historyOpen && (
+            <div className="history-drawer">
+              {history.map((item, index) => (
+                <button
+                  type="button"
+                  key={`${item.expression}-${index}`}
+                  onClick={() => {
+                    setFormattedExpression(item.expression)
+                    setHistoryOpen(false)
+                  }}
+                >
+                  <span>{displayExpression(item.expression)}</span>
+                  <strong>{item.value}</strong>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="keypad" aria-label="Calculator keypad">
             {keys.flat().map((key) => (
