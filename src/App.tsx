@@ -1054,6 +1054,66 @@ const makeAnalysis = (
   }
 }
 
+const isDisplayMathKind = (kind: MathObjectKind) =>
+  kind === 'function2d' ||
+  kind === 'geometry2d' ||
+  kind === 'primitive3d' ||
+  kind === 'surface3d' ||
+  kind === 'vector' ||
+  kind === 'complex'
+
+const evaluateMathAnalysis = (
+  expression: string,
+  angleMode: AngleMode,
+  mathAnalysis: MathAnalysis,
+) => {
+  try {
+    if (mathAnalysis.kind === 'vector') {
+      return { label: 'vector', numeric: mathAnalysis.vector?.magnitude ?? null, valid: true }
+    }
+
+    if (mathAnalysis.kind === 'complex') {
+      return { label: 'complex', numeric: mathAnalysis.complex?.magnitude ?? null, valid: true }
+    }
+
+    if (mathAnalysis.kind === 'geometry2d') {
+      return { label: 'geometry', numeric: null, valid: true }
+    }
+
+    if (mathAnalysis.kind === 'primitive3d') {
+      return {
+        label:
+          mathAnalysis.primitive3d?.kind === 'line3d'
+            ? '3D line'
+            : mathAnalysis.primitive3d?.kind ?? '3D object',
+        numeric: null,
+        valid: true,
+      }
+    }
+
+    if (mathAnalysis.kind === 'function2d') {
+      return { label: 'function', numeric: null, valid: true }
+    }
+
+    if (mathAnalysis.kind === 'surface3d') {
+      return { label: 'surface', numeric: null, valid: true }
+    }
+
+    const value = tryEvaluate(expression, angleMode)
+    return {
+      label: value === null ? '0' : formatValue(value),
+      numeric: Number(value),
+      valid: true,
+    }
+  } catch {
+    return {
+      label: 'syntax',
+      numeric: null,
+      valid: false,
+    }
+  }
+}
+
 const insertPercent = (expression: string) =>
   expression.replace(/(\d+\.?\d*)$/, (_, value) => String(Number(value) / 100))
 
@@ -2097,7 +2157,9 @@ function MathViewport({
 }
 
 function App() {
-  const [expression, setExpression] = useState(() => formatExpressionInput('x^2 - 4'))
+  const initialExpression = formatExpressionInput('x^2 - 4')
+  const [expression, setExpression] = useState(initialExpression)
+  const [committedExpression, setCommittedExpression] = useState(initialExpression)
   const [angleMode, setAngleMode] = useState<AngleMode>('rad')
   const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('auto')
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('function')
@@ -2125,64 +2187,17 @@ function App() {
   ])
 
   const mathAnalysis = useMemo(
-    () => makeAnalysis(expression, angleMode, visualizationMode, analysisMode),
-    [analysisMode, angleMode, expression, visualizationMode],
+    () => makeAnalysis(committedExpression, angleMode, visualizationMode, analysisMode),
+    [analysisMode, angleMode, committedExpression, visualizationMode],
   )
 
-  const evaluated = useMemo(() => {
-    try {
-      if (mathAnalysis.kind === 'vector') {
-        return { label: 'vector', numeric: mathAnalysis.vector?.magnitude ?? null, valid: true }
-      }
+  const evaluated = useMemo(
+    () => evaluateMathAnalysis(committedExpression, angleMode, mathAnalysis),
+    [angleMode, committedExpression, mathAnalysis],
+  )
 
-      if (mathAnalysis.kind === 'complex') {
-        return { label: 'complex', numeric: mathAnalysis.complex?.magnitude ?? null, valid: true }
-      }
-
-      if (mathAnalysis.kind === 'geometry2d') {
-        return { label: 'geometry', numeric: null, valid: true }
-      }
-
-      if (mathAnalysis.kind === 'primitive3d') {
-        return {
-          label: mathAnalysis.primitive3d?.kind === 'line3d'
-            ? '3D line'
-            : mathAnalysis.primitive3d?.kind ?? '3D object',
-          numeric: null,
-          valid: true,
-        }
-      }
-
-      if (mathAnalysis.kind === 'function2d') {
-        return { label: 'function', numeric: null, valid: true }
-      }
-
-      if (mathAnalysis.kind === 'surface3d') {
-        return { label: 'surface', numeric: null, valid: true }
-      }
-
-      const value = tryEvaluate(expression, angleMode)
-      return {
-        label: value === null ? '0' : formatValue(value),
-        numeric: Number(value),
-        valid: true,
-      }
-    } catch {
-      return {
-        label: 'syntax',
-        numeric: null,
-        valid: false,
-      }
-    }
-  }, [angleMode, expression, mathAnalysis])
-
-  const isDisplayObject =
-    mathAnalysis.kind === 'function2d' ||
-    mathAnalysis.kind === 'geometry2d' ||
-    mathAnalysis.kind === 'primitive3d' ||
-    mathAnalysis.kind === 'surface3d' ||
-    mathAnalysis.kind === 'vector' ||
-    mathAnalysis.kind === 'complex'
+  const isDisplayObject = isDisplayMathKind(mathAnalysis.kind)
+  const hasPendingExpression = expression.trim() !== committedExpression.trim()
 
   const inspectedActiveValue = useMemo(
     () =>
@@ -2199,8 +2214,8 @@ function App() {
 
     return mathAnalysis.symbolicDerivative
       ? evaluateRawForPoint(mathAnalysis.symbolicDerivative, angleMode, inspectX)
-      : derivativeAt(expression, angleMode, inspectX)
-  }, [angleMode, expression, inspectX, mathAnalysis.kind, mathAnalysis.symbolicDerivative])
+      : derivativeAt(committedExpression, angleMode, inspectX)
+  }, [angleMode, committedExpression, inspectX, mathAnalysis.kind, mathAnalysis.symbolicDerivative])
 
   const isConstantActiveFunction = useMemo(() => {
     if (mathAnalysis.kind !== 'function2d') {
@@ -2215,7 +2230,7 @@ function App() {
     if (mathAnalysis.kind === 'function2d') {
       if (analysisMode === 'derivative') {
         return [
-          ['source f(x)', displayExpression(expression)],
+          ['source f(x)', displayExpression(committedExpression)],
           [
             "f'(x)",
             mathAnalysis.symbolicDerivative
@@ -2233,7 +2248,7 @@ function App() {
 
       if (analysisMode === 'integral') {
         return [
-          ['source f(x)', displayExpression(expression)],
+          ['source f(x)', displayExpression(committedExpression)],
           [
             'F(x)',
             mathAnalysis.symbolicIntegral
@@ -2391,7 +2406,7 @@ function App() {
     }
 
     if (mathAnalysis.kind === 'ratio') {
-      const ratio = parseSimpleDivision(expression)
+      const ratio = parseSimpleDivision(committedExpression)
       return ratio
         ? [
             ['quotient', formatValue(ratio.value)],
@@ -2405,7 +2420,7 @@ function App() {
   }, [
     analysisMode,
     evaluated,
-    expression,
+    committedExpression,
     inspectX,
     inspectedActiveValue,
     inspectedSlope,
@@ -2415,34 +2430,69 @@ function App() {
 
   const setFormattedExpression = (value: string) => setExpression(formatExpressionInput(value))
 
-  const applyGeometryExpression = (
+  const commitExpression = (
+    value: string,
+    options: {
+      nextAnalysisMode?: AnalysisMode
+      nextVisualizationMode?: VisualizationMode
+    } = {},
+  ) => {
+    const nextExpression = formatExpressionInput(value.trim() || '0')
+    const nextAnalysisMode = options.nextAnalysisMode ?? analysisMode
+    const nextVisualizationMode = options.nextVisualizationMode ?? visualizationMode
+
+    if (options.nextAnalysisMode) {
+      setAnalysisMode(options.nextAnalysisMode)
+    }
+    if (options.nextVisualizationMode) {
+      setVisualizationMode(options.nextVisualizationMode)
+    }
+
+    const nextAnalysis = makeAnalysis(nextExpression, angleMode, nextVisualizationMode, nextAnalysisMode)
+    const nextEvaluation = evaluateMathAnalysis(nextExpression, angleMode, nextAnalysis)
+    setExpression(nextExpression)
+    setCommittedExpression(nextExpression)
+
+    if (nextEvaluation.valid) {
+      setHistory((items) =>
+        [{ expression: nextExpression, value: nextEvaluation.label }, ...items].slice(0, 7),
+      )
+    }
+  }
+
+  const draftGeometryExpression = (
     kind = geometryComposerKind,
     fields = geometryComposerFields,
   ) => {
-    setAnalysisMode('function')
-    setVisualizationMode('auto')
     setFormattedExpression(buildGeometryExpression(kind, fields))
+  }
+
+  const commitGeometryExpression = () => {
+    commitExpression(buildGeometryExpression(geometryComposerKind, geometryComposerFields), {
+      nextAnalysisMode: 'function',
+      nextVisualizationMode: 'auto',
+    })
   }
 
   const selectGeometryObject = (kind: GeometryComposerKind) => {
     const fields = geometryComposerDefaults[kind]
     setGeometryComposerKind(kind)
     setGeometryComposerFields(fields)
-    applyGeometryExpression(kind, fields)
+    draftGeometryExpression(kind, fields)
   }
 
   const updateGeometryField = (key: string, value: string) => {
     const nextFields = { ...geometryComposerFields, [key]: value }
     setGeometryComposerFields(nextFields)
     if (geometryFieldsComplete(geometryComposerKind, nextFields)) {
-      applyGeometryExpression(geometryComposerKind, nextFields)
+      draftGeometryExpression(geometryComposerKind, nextFields)
     }
   }
 
   const generateGeometryExample = () => {
     const fields = randomGeometryFields(geometryComposerKind)
     setGeometryComposerFields(fields)
-    applyGeometryExpression(geometryComposerKind, fields)
+    draftGeometryExpression(geometryComposerKind, fields)
   }
 
   const handleExpressionChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -2487,24 +2537,13 @@ function App() {
     })
   }
 
-  const commitEvaluation = () => {
-    if (!evaluated.valid) {
-      return
-    }
-
-    if (isDisplayObject) {
-      setHistory((items) => [{ expression, value: evaluated.label }, ...items].slice(0, 7))
-      return
-    }
-
-    setHistory((items) => [{ expression, value: evaluated.label }, ...items].slice(0, 7))
-    setFormattedExpression(String(evaluated.numeric ?? evaluated.label).replaceAll(',', ''))
-  }
+  const commitEvaluation = () => commitExpression(expression)
 
   const handleInput = (token: string) => {
     switch (token) {
       case 'AC':
         setExpression('0')
+        setCommittedExpression('0')
         setAnalysisMode('function')
         setVisualizationMode('auto')
         setOrbitEnabled(false)
@@ -2550,34 +2589,22 @@ function App() {
         setExpression((current) => formatExpressionInput(appendToken(current, 'rand()')))
         return
       case 'sample-function':
-        setVisualizationMode('fx')
-        setAnalysisMode('function')
-        setFormattedExpression('x^2 - 4')
+        commitExpression('x^2 - 4', { nextAnalysisMode: 'function', nextVisualizationMode: 'fx' })
         return
       case 'sample-derivative':
-        setVisualizationMode('fx')
-        setAnalysisMode('derivative')
-        setFormattedExpression('x^3 - 3x')
+        commitExpression('x^3 - 3x', { nextAnalysisMode: 'derivative', nextVisualizationMode: 'fx' })
         return
       case 'sample-integral':
-        setVisualizationMode('fx')
-        setAnalysisMode('integral')
-        setFormattedExpression('sin(x)')
+        commitExpression('sin(x)', { nextAnalysisMode: 'integral', nextVisualizationMode: 'fx' })
         return
       case 'sample-vector':
-        setVisualizationMode('auto')
-        setAnalysisMode('function')
-        setFormattedExpression('<3, 4>')
+        commitExpression('<3, 4>', { nextAnalysisMode: 'function', nextVisualizationMode: 'auto' })
         return
       case 'sample-complex':
-        setVisualizationMode('auto')
-        setAnalysisMode('function')
-        setFormattedExpression('3 + 4i')
+        commitExpression('3 + 4i', { nextAnalysisMode: 'function', nextVisualizationMode: 'auto' })
         return
       case 'sample-surface':
-        setVisualizationMode('fxy')
-        setAnalysisMode('function')
-        setFormattedExpression('sin(x) * cos(y)')
+        commitExpression('sin(x) * cos(y)', { nextAnalysisMode: 'function', nextVisualizationMode: 'fxy' })
         return
       default:
         setExpression((current) => formatExpressionInput(appendToken(current, token)))
@@ -2776,7 +2803,7 @@ function App() {
     mathAnalysis.kind === 'complex'
   const functionSymbol = getFunctionSymbol(analysisMode)
   const activeFunctionExpression =
-    mathAnalysis.kind === 'function2d' ? mathAnalysis.activeExpression : expression
+    mathAnalysis.kind === 'function2d' ? mathAnalysis.activeExpression : committedExpression
   const inspectedFunctionLabel =
     mathAnalysis.kind === 'function2d' ? getInspectedFunctionLabel(analysisMode, inspectX) : ''
   const geometryViewportRows =
@@ -2792,7 +2819,11 @@ function App() {
         ? mathAnalysis.symbolicIntegral
         : null
   const resultLabel =
-    mathAnalysis.kind === 'function2d' ? getFunctionResultLabel(analysisMode) : evaluated.label
+    hasPendingExpression
+      ? 'press = to evaluate'
+      : mathAnalysis.kind === 'function2d'
+        ? getFunctionResultLabel(analysisMode)
+        : evaluated.label
   const showViewportReadout = mathAnalysis.kind !== 'primitive3d'
   const geometryObjectChoices: Array<{
     icon: ReactNode
@@ -2827,7 +2858,7 @@ function App() {
               analysisMode={analysisMode}
               angleMode={angleMode}
               axisValuesVisible={axisValuesVisible}
-              expression={expression}
+              expression={committedExpression}
               graphZoom={graphZoom}
               inspectX={inspectX}
               mathAnalysis={mathAnalysis}
@@ -2911,7 +2942,7 @@ function App() {
         </div>
 
         <section className="calculator-deck">
-          <div className={`display-strip ${isDisplayObject ? 'function-display' : ''}`}>
+          <div className={`display-strip ${isDisplayObject || hasPendingExpression ? 'function-display' : ''}`}>
             <div
               className={`expression-editor ${expressionFocused ? 'editing' : 'rendered'}`}
               onClick={() => expressionInputRef.current?.focus()}
@@ -2949,7 +2980,7 @@ function App() {
                 <strong>{formatRootAnalysis(mathAnalysis.activeRootAnalysis)}</strong>
               </div>
             )}
-            <div className={evaluated.valid ? 'result-line' : 'result-line error'}>
+            <div className={evaluated.valid || hasPendingExpression ? 'result-line' : 'result-line error'}>
               {resultLabel}
             </div>
           </div>
@@ -2992,7 +3023,7 @@ function App() {
               </div>
 
               <div className="geometry-actions">
-                <button onClick={() => applyGeometryExpression()} type="button">
+                <button onClick={commitGeometryExpression} type="button">
                   <WandSparkles size={15} />
                   <span>create</span>
                 </button>
@@ -3082,7 +3113,7 @@ function App() {
                   type="button"
                   key={`${item.expression}-${index}`}
                   onClick={() => {
-                    setFormattedExpression(item.expression)
+                    commitExpression(item.expression)
                     setHistoryOpen(false)
                   }}
                 >
