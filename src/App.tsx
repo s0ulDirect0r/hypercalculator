@@ -3,12 +3,10 @@ import { evaluate } from 'mathjs'
 import nerdamer from 'nerdamer'
 import 'nerdamer/Calculus'
 import {
-  Calculator,
   Delete,
   FunctionSquare,
   Hash,
   History,
-  LayoutPanelLeft,
   RotateCcw,
   Sparkles,
   ZoomIn,
@@ -1286,7 +1284,7 @@ function MathViewport({
       return { maxX, maxY, minX, minY }
     }
 
-    const makeTextSprite = (text: string, color = '#d8cfd8') => {
+    const makeTextSprite = (text: string, color = '#d7e6eb') => {
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
       if (!context) {
@@ -1332,15 +1330,15 @@ function MathViewport({
       const axisY = clamp(0, bounds.minY, bounds.maxY)
       const axisX = clamp(0, bounds.minX, bounds.maxX)
       const labelOffset = 0.58 / graphZoom
-      const gridColor = 0x342b36
-      const majorGridColor = 0x4b3d4b
+      const gridColor = 0x14242b
+      const majorGridColor = 0x284956
       const axisMaterial = new THREE.MeshBasicMaterial({
-        color: 0xd8cfd8,
+        color: 0xd7e6eb,
         transparent: true,
         opacity: 0.88,
       })
       const tickMaterial = new THREE.MeshBasicMaterial({
-        color: 0xd8cfd8,
+        color: 0xd7e6eb,
         transparent: true,
         opacity: 0.58,
       })
@@ -1370,7 +1368,7 @@ function MathViewport({
         }
 
         if (axisValuesVisible && Math.abs(tick) > 0.000001) {
-          const label = makeTextSprite(formatAxisValue(tick), '#d8cfd8')
+          const label = makeTextSprite(formatAxisValue(tick), '#d7e6eb')
           if (label) {
             label.position.set(x, (axisY - labelOffset) * GRAPH_SCALE, 0.08)
           }
@@ -1397,7 +1395,7 @@ function MathViewport({
         }
 
         if (axisValuesVisible && Math.abs(tick) > 0.000001) {
-          const label = makeTextSprite(formatAxisValue(tick), '#d8cfd8')
+          const label = makeTextSprite(formatAxisValue(tick), '#d7e6eb')
           if (label) {
             label.position.set((axisX + labelOffset) * GRAPH_SCALE, y, 0.08)
           }
@@ -1686,7 +1684,7 @@ function MathViewport({
         }
       }
     } else if (mathAnalysis.kind === 'surface3d') {
-      const grid = new THREE.GridHelper(12, 24, 0x6c4d66, 0x352a36)
+      const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
       grid.position.y = -2.2
       group.add(grid)
       const axes = new THREE.AxesHelper(3.4)
@@ -1749,7 +1747,7 @@ function MathViewport({
       )
     } else if (mathAnalysis.kind === 'ratio') {
       const divisionParts = parseSimpleDivision(expression)
-      const grid = new THREE.GridHelper(12, 24, 0x6c4d66, 0x352a36)
+      const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
       grid.position.y = -2.2
       group.add(grid)
 
@@ -1773,7 +1771,7 @@ function MathViewport({
           roughness: 0.24,
         })
         const tickMaterial = new THREE.MeshBasicMaterial({
-          color: 0xf7f3f5,
+          color: 0xf4f8ff,
           opacity: 0.55,
           transparent: true,
         })
@@ -1812,12 +1810,12 @@ function MathViewport({
       const visibleValue = clamp(scalar, -10, 10)
       const scaleWidth = 6
       const scaleMaterial = new THREE.MeshBasicMaterial({
-        color: 0xf7f3f5,
+        color: 0xf4f8ff,
         opacity: 0.18,
         transparent: true,
       })
       const tickMaterial = new THREE.MeshBasicMaterial({
-        color: 0xf7f3f5,
+        color: 0xf4f8ff,
         opacity: 0.52,
         transparent: true,
       })
@@ -1828,8 +1826,8 @@ function MathViewport({
         roughness: 0.28,
       })
       const zeroMaterial = new THREE.MeshStandardMaterial({
-        color: 0xf7f3f5,
-        emissive: 0x2c252e,
+        color: 0xf4f8ff,
+        emissive: 0x111820,
         metalness: 0.14,
         roughness: 0.32,
       })
@@ -2529,21 +2527,10 @@ function App() {
     <main className="app-shell">
       <section className="hyper-window" aria-label="Hypercalculator">
         <header className="window-bar">
-          <div className="traffic-lights" aria-hidden="true">
-            <span className="red" />
-            <span className="yellow" />
-            <span className="green" />
-          </div>
-          <button className="chrome-button" type="button" aria-label="Toggle sidebar">
-            <LayoutPanelLeft size={21} />
-          </button>
           <div className="window-title">
             <Sparkles size={16} />
-            <span>hypercalculator</span>
+            <span>Hypercalculator</span>
           </div>
-          <button className="chrome-button" type="button" aria-label="Calculator mode">
-            <Calculator size={21} />
-          </button>
         </header>
 
         <div className="workspace">
