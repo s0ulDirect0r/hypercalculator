@@ -20,11 +20,12 @@ import './App.css'
 type AngleMode = 'rad' | 'deg'
 type VisualizationMode = 'auto' | 'fx' | 'fxy'
 type AnalysisMode = 'function' | 'derivative' | 'integral'
-type MathObjectKind = 'complex' | 'function2d' | 'ratio' | 'scalar' | 'surface3d' | 'vector'
+type MathObjectKind = 'complex' | 'function2d' | 'geometry2d' | 'ratio' | 'scalar' | 'surface3d' | 'vector'
 type ConceptTarget =
   | 'complex'
   | 'derivative'
   | 'function'
+  | 'geometry'
   | 'integral'
   | 'ratio'
   | 'scalar'
@@ -62,11 +63,44 @@ type ComplexParts = {
   magnitude: number
   re: number
 }
+type Point2D = {
+  x: number
+  y: number
+}
+type GeometryParts =
+  | {
+      kind: 'circle'
+      area: number
+      center: Point2D
+      circumference: number
+      radius: number
+    }
+  | {
+      kind: 'point'
+      point: Point2D
+    }
+  | {
+      kind: 'segment'
+      a: Point2D
+      b: Point2D
+      length: number
+      midpoint: Point2D
+      slope: number | null
+    }
+  | {
+      kind: 'triangle'
+      area: number
+      centroid: Point2D
+      perimeter: number
+      points: [Point2D, Point2D, Point2D]
+      sides: [number, number, number]
+    }
 
 type MathAnalysis = {
   activeExpression: string
   activeRootAnalysis: RootAnalysis
   complex: ComplexParts | null
+  geometry: GeometryParts | null
   integralArea: number | null
   kind: MathObjectKind
   rootAnalysis: RootAnalysis
@@ -403,7 +437,14 @@ const parseSimpleDivision = (expression: string): DivisionParts | null => {
 }
 
 const splitTopLevelComma = (value: string) => {
+  const parts = splitTopLevelCommas(value)
+  return parts.length >= 2 ? [parts[0], parts.slice(1).join(',')] : null
+}
+
+const splitTopLevelCommas = (value: string) => {
   let depth = 0
+  const parts: string[] = []
+  let start = 0
 
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index]
@@ -412,7 +453,127 @@ const splitTopLevelComma = (value: string) => {
     } else if (char === ')' || char === ']' || char === '>') {
       depth -= 1
     } else if (char === ',' && depth === 0) {
-      return [value.slice(0, index), value.slice(index + 1)]
+      parts.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+
+  parts.push(value.slice(start).trim())
+  return parts.filter(Boolean)
+}
+
+const distanceBetween = (a: Point2D, b: Point2D) => Math.hypot(b.x - a.x, b.y - a.y)
+
+const midpointBetween = (a: Point2D, b: Point2D) => ({
+  x: (a.x + b.x) / 2,
+  y: (a.y + b.y) / 2,
+})
+
+const formatPoint = (point: Point2D) => `(${formatValue(point.x)}, ${formatValue(point.y)})`
+
+const parsePoint2D = (value: string, angleMode: AngleMode): Point2D | null => {
+  const trimmed = value.trim()
+  const match = trimmed.match(/^\((.*)\)$/) ?? trimmed.match(/^\[(.*)\]$/)
+  if (!match) {
+    return null
+  }
+
+  const parts = splitTopLevelCommas(match[1])
+  if (parts.length !== 2) {
+    return null
+  }
+
+  const x = evaluateNumeric(parts[0], angleMode)
+  const y = evaluateNumeric(parts[1], angleMode)
+  if (x === null || y === null) {
+    return null
+  }
+
+  return { x, y }
+}
+
+const parseGeometry = (expression: string, angleMode: AngleMode): GeometryParts | null => {
+  const trimmed = expression.trim()
+  const call = trimmed.match(/^([A-Za-z]+)\((.*)\)$/)
+  if (!call) {
+    return null
+  }
+
+  const name = call[1].toLowerCase()
+  const parts = splitTopLevelCommas(call[2])
+
+  if ((name === 'point' || name === 'pt') && parts.length === 2) {
+    const x = evaluateNumeric(parts[0], angleMode)
+    const y = evaluateNumeric(parts[1], angleMode)
+    return x === null || y === null ? null : { kind: 'point', point: { x, y } }
+  }
+
+  if (name === 'circle' && parts.length === 2) {
+    const center = parsePoint2D(parts[0], angleMode)
+    const radius = evaluateNumeric(parts[1], angleMode)
+    if (!center || radius === null || radius <= 0) {
+      return null
+    }
+
+    return {
+      area: Math.PI * radius * radius,
+      center,
+      circumference: Math.PI * radius * 2,
+      kind: 'circle',
+      radius,
+    }
+  }
+
+  if ((name === 'segment' || name === 'seg') && parts.length === 2) {
+    const a = parsePoint2D(parts[0], angleMode)
+    const b = parsePoint2D(parts[1], angleMode)
+    if (!a || !b) {
+      return null
+    }
+
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    return {
+      a,
+      b,
+      kind: 'segment',
+      length: distanceBetween(a, b),
+      midpoint: midpointBetween(a, b),
+      slope: Math.abs(dx) < 0.000001 ? null : dy / dx,
+    }
+  }
+
+  if ((name === 'triangle' || name === 'tri') && parts.length === 3) {
+    const points = parts.map((part) => parsePoint2D(part, angleMode))
+    if (!points[0] || !points[1] || !points[2]) {
+      return null
+    }
+
+    const trianglePoints = points as [Point2D, Point2D, Point2D]
+    const [a, b, c] = trianglePoints
+    const sides: [number, number, number] = [
+      distanceBetween(a, b),
+      distanceBetween(b, c),
+      distanceBetween(c, a),
+    ]
+    const area = Math.abs(
+      (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)) / 2,
+    )
+
+    if (area < 0.000001) {
+      return null
+    }
+
+    return {
+      area,
+      centroid: {
+        x: (a.x + b.x + c.x) / 3,
+        y: (a.y + b.y + c.y) / 3,
+      },
+      kind: 'triangle',
+      perimeter: sides.reduce((total, side) => total + side, 0),
+      points: trianglePoints,
+      sides,
     }
   }
 
@@ -646,6 +807,10 @@ const getMathKind = (
   angleMode: AngleMode,
   visualizationMode: VisualizationMode,
 ): MathObjectKind => {
+  if (parseGeometry(expression, angleMode)) {
+    return 'geometry2d'
+  }
+
   if (parseVector(expression, angleMode)) {
     return 'vector'
   }
@@ -674,6 +839,7 @@ const getViewportModeLabel = (kind: MathObjectKind) => {
   const labels: Record<MathObjectKind, string> = {
     complex: 'complex plane',
     function2d: '2D function',
+    geometry2d: 'geometry lab',
     ratio: 'division ratio',
     scalar: 'scalar value',
     surface3d: 'surface function',
@@ -745,6 +911,7 @@ const makeAnalysis = (
   visualizationMode: VisualizationMode,
   analysisMode: AnalysisMode,
 ): MathAnalysis => {
+  const geometry = parseGeometry(expression, angleMode)
   const vector = parseVector(expression, angleMode)
   const complex = parseComplex(expression)
   const kind = getMathKind(expression, angleMode, visualizationMode)
@@ -765,6 +932,7 @@ const makeAnalysis = (
       ? analyzeRoots(activeExpression, angleMode)
       : { kind: 'not-function', roots: [] },
     complex,
+    geometry,
     integralArea: isFunction ? integrate(expression, angleMode, -2, 2) : null,
     kind,
     rootAnalysis,
@@ -801,7 +969,7 @@ const makeGeneratedExample = (
 ): GeneratedExample => {
   const targetKind =
     intent === 'surprise'
-      ? pick<MathObjectKind>(['complex', 'function2d', 'ratio', 'scalar', 'surface3d', 'vector'])
+      ? pick<MathObjectKind>(['complex', 'function2d', 'geometry2d', 'ratio', 'scalar', 'surface3d', 'vector'])
       : currentKind === 'scalar' && intent === 'same'
         ? 'function2d'
         : currentKind
@@ -856,6 +1024,33 @@ const makeGeneratedExample = (
     }
   }
 
+  if (targetKind === 'geometry2d') {
+    const examples =
+      intent === 'harder'
+        ? [
+            'triangle((-4,-2),(3,-1),(1,4))',
+            'circle((1,-1),4)',
+            'segment((-5,3),(4,-2))',
+          ]
+        : intent === 'easier'
+          ? [
+              'point(2,3)',
+              'segment((0,0),(3,4))',
+              'circle((0,0),3)',
+            ]
+          : [
+              'circle((0,0),3)',
+              'segment((-3,-2),(4,2))',
+              'triangle((0,0),(4,0),(0,3))',
+            ]
+
+    return {
+      analysisMode: 'function',
+      expression: pick(examples),
+      visualizationMode: 'auto',
+    }
+  }
+
   if (targetKind === 'vector') {
     const range = intent === 'harder' ? 9 : intent === 'easier' ? 4 : 7
     return {
@@ -901,6 +1096,8 @@ const makeGeneratedExampleForConcept = (concept: ConceptTarget): GeneratedExampl
       return makeGeneratedExample('same', 'function2d', 'derivative')
     case 'function':
       return makeGeneratedExample('same', 'function2d', 'function')
+    case 'geometry':
+      return makeGeneratedExample('same', 'geometry2d', 'function')
     case 'integral':
       return makeGeneratedExample('same', 'function2d', 'integral')
     case 'ratio':
@@ -945,6 +1142,7 @@ const appendToken = (expression: string, token: string) => {
 
 const GRAPH_SCALE = 0.55
 const MAX_GRAPH_EXTENT = 50
+const ORTHOGRAPHIC_HALF_HEIGHT = 5.4
 
 const toGraphPoint = (x: number, y: number, minY = -8, maxY = 8) =>
   new THREE.Vector3(x * GRAPH_SCALE, clamp(y, minY, maxY) * GRAPH_SCALE, 0)
@@ -1004,13 +1202,21 @@ function MathViewport({
     const scene = new THREE.Scene()
     const use2D =
       mathAnalysis.kind === 'function2d' ||
+      mathAnalysis.kind === 'geometry2d' ||
       mathAnalysis.kind === 'vector' ||
       mathAnalysis.kind === 'complex'
     const width = Math.max(mount.clientWidth, 1)
     const height = Math.max(mount.clientHeight, 1)
     const aspect = width / height
     const camera = use2D
-      ? new THREE.OrthographicCamera(-6.2 * aspect, 6.2 * aspect, 5.4, -5.4, 0.1, 100)
+      ? new THREE.OrthographicCamera(
+          -ORTHOGRAPHIC_HALF_HEIGHT * aspect,
+          ORTHOGRAPHIC_HALF_HEIGHT * aspect,
+          ORTHOGRAPHIC_HALF_HEIGHT,
+          -ORTHOGRAPHIC_HALF_HEIGHT,
+          0.1,
+          100,
+        )
       : new THREE.PerspectiveCamera(45, aspect, 0.1, 100)
     if (camera instanceof THREE.OrthographicCamera) {
       camera.zoom = graphZoom
@@ -1337,6 +1543,97 @@ function MathViewport({
             group.add(marker)
           })
       }
+    } else if (mathAnalysis.kind === 'geometry2d') {
+      render2DGrid()
+      const bounds = getVisibleMathBounds()
+      const geometry = mathAnalysis.geometry
+      const geometryMaterial = new THREE.MeshBasicMaterial({
+        color: 0x6ee7ff,
+        transparent: true,
+        opacity: 0.95,
+      })
+      const accentMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfff2c9,
+        transparent: true,
+        opacity: 0.95,
+      })
+      const fillMaterial = new THREE.MeshBasicMaterial({
+        color: 0x6ee7ff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.16,
+      })
+      const geometryPoint = (point: Point2D, z = 0.05) =>
+        new THREE.Vector3(point.x * GRAPH_SCALE, point.y * GRAPH_SCALE, z)
+      const drawPoint = (point: Point2D, label: string, material = accentMaterial) => {
+        if (point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) {
+          return
+        }
+
+        const marker = new THREE.Mesh(new THREE.CircleGeometry(0.13 / graphZoom, 28), material)
+        marker.position.copy(geometryPoint(point, 0.1))
+        marker.position.z = 0.1
+        group.add(marker)
+
+        const text = makeTextSprite(label, '#fff2c9')
+        if (text) {
+          text.position.set((point.x + 0.38 / graphZoom) * GRAPH_SCALE, (point.y + 0.42 / graphZoom) * GRAPH_SCALE, 0.12)
+        }
+      }
+
+      if (geometry?.kind === 'point') {
+        drawPoint(geometry.point, 'P')
+      } else if (geometry?.kind === 'segment') {
+        line(
+          [
+            geometryPoint(geometry.a),
+            geometryPoint(geometry.b),
+          ],
+          0x6ee7ff,
+          1,
+        )
+        drawPoint(geometry.a, 'A')
+        drawPoint(geometry.b, 'B')
+        drawPoint(geometry.midpoint, 'M', geometryMaterial)
+      } else if (geometry?.kind === 'circle') {
+        const points: THREE.Vector3[] = []
+        for (let index = 0; index <= 240; index += 1) {
+          const theta = (Math.PI * 2 * index) / 240
+          const x = geometry.center.x + Math.cos(theta) * geometry.radius
+          const y = geometry.center.y + Math.sin(theta) * geometry.radius
+          points.push(new THREE.Vector3(x * GRAPH_SCALE, y * GRAPH_SCALE, 0.05))
+        }
+        line(points, 0x6ee7ff, 1)
+        line(
+          [
+            geometryPoint(geometry.center, 0.04),
+            geometryPoint({ x: geometry.center.x + geometry.radius, y: geometry.center.y }, 0.04),
+          ],
+          0xfff2c9,
+          0.78,
+        )
+        drawPoint(geometry.center, 'C')
+      } else if (geometry?.kind === 'triangle') {
+        const trianglePoints = geometry.points.map((point) =>
+          geometryPoint(point),
+        )
+        const shape = new THREE.Shape(trianglePoints.map((point) => new THREE.Vector2(point.x, point.y)))
+        const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape), fillMaterial)
+        fill.position.z = 0.03
+        group.add(fill)
+        line(
+          [
+            trianglePoints[0].clone().setZ(0.06),
+            trianglePoints[1].clone().setZ(0.06),
+            trianglePoints[2].clone().setZ(0.06),
+            trianglePoints[0].clone().setZ(0.06),
+          ],
+          0x6ee7ff,
+          1,
+        )
+        geometry.points.forEach((point, index) => drawPoint(point, String.fromCharCode(65 + index)))
+        drawPoint(geometry.centroid, 'G', geometryMaterial)
+      }
     } else if (mathAnalysis.kind === 'vector' || mathAnalysis.kind === 'complex') {
       render2DGrid()
       const vector =
@@ -1575,8 +1872,10 @@ function MathViewport({
         camera.aspect = nextWidth / Math.max(nextHeight, 1)
       } else {
         const nextAspect = nextWidth / Math.max(nextHeight, 1)
-        camera.left = -6.2 * nextAspect
-        camera.right = 6.2 * nextAspect
+        camera.left = -ORTHOGRAPHIC_HALF_HEIGHT * nextAspect
+        camera.right = ORTHOGRAPHIC_HALF_HEIGHT * nextAspect
+        camera.top = ORTHOGRAPHIC_HALF_HEIGHT
+        camera.bottom = -ORTHOGRAPHIC_HALF_HEIGHT
       }
 
       camera.updateProjectionMatrix()
@@ -1705,6 +2004,10 @@ function App() {
         return { label: 'complex', numeric: mathAnalysis.complex?.magnitude ?? null, valid: true }
       }
 
+      if (mathAnalysis.kind === 'geometry2d') {
+        return { label: 'geometry', numeric: null, valid: true }
+      }
+
       if (mathAnalysis.kind === 'function2d') {
         return { label: 'function', numeric: null, valid: true }
       }
@@ -1730,6 +2033,7 @@ function App() {
 
   const isDisplayObject =
     mathAnalysis.kind === 'function2d' ||
+    mathAnalysis.kind === 'geometry2d' ||
     mathAnalysis.kind === 'surface3d' ||
     mathAnalysis.kind === 'vector' ||
     mathAnalysis.kind === 'complex'
@@ -1854,6 +2158,44 @@ function App() {
       ]
     }
 
+    if (mathAnalysis.kind === 'geometry2d' && mathAnalysis.geometry) {
+      const geometry = mathAnalysis.geometry
+
+      if (geometry.kind === 'point') {
+        return [
+          ['type', 'point'],
+          ['coordinates', formatPoint(geometry.point)],
+        ]
+      }
+
+      if (geometry.kind === 'segment') {
+        return [
+          ['type', 'segment'],
+          ['length', formatValue(geometry.length)],
+          ['midpoint', formatPoint(geometry.midpoint)],
+          ['slope', geometry.slope === null ? 'vertical' : formatValue(geometry.slope)],
+        ]
+      }
+
+      if (geometry.kind === 'circle') {
+        return [
+          ['type', 'circle'],
+          ['center', formatPoint(geometry.center)],
+          ['radius', formatValue(geometry.radius)],
+          ['area', formatValue(geometry.area)],
+          ['circumference', formatValue(geometry.circumference)],
+        ]
+      }
+
+      return [
+        ['type', 'triangle'],
+        ['area', formatValue(geometry.area)],
+        ['perimeter', formatValue(geometry.perimeter)],
+        ['centroid', formatPoint(geometry.centroid)],
+        ['side lengths', geometry.sides.map(formatValue).join(', ')],
+      ]
+    }
+
     if (mathAnalysis.kind === 'ratio') {
       const ratio = parseSimpleDivision(expression)
       return ratio
@@ -1892,6 +2234,8 @@ function App() {
         : analysisMode === 'integral'
           ? 'integral'
           : 'function'
+      : mathAnalysis.kind === 'geometry2d'
+        ? 'geometry'
       : mathAnalysis.kind === 'surface3d'
         ? 'surface'
         : mathAnalysis.kind === 'vector'
@@ -1909,6 +2253,7 @@ function App() {
     { description: 'algebraic graph', label: 'Function', target: 'function' },
     { description: 'tangent and slope', label: 'Derivative', target: 'derivative' },
     { description: 'signed area', label: 'Integral', target: 'integral' },
+    { description: 'points and shapes', label: 'Geometry', target: 'geometry' },
     { description: 'magnitude and angle', label: 'Vector', target: 'vector' },
     { description: 'complex plane', label: 'Complex', target: 'complex' },
     { description: 'partitioned quotient', label: 'Ratio', target: 'ratio' },
@@ -2164,11 +2509,13 @@ function App() {
     return 'scientific'
   }
 
+  const hasCoordinateViewport = mathAnalysis.kind === 'function2d' || mathAnalysis.kind === 'geometry2d'
   const functionSymbol = getFunctionSymbol(analysisMode)
   const activeFunctionExpression =
     mathAnalysis.kind === 'function2d' ? mathAnalysis.activeExpression : expression
   const inspectedFunctionLabel =
     mathAnalysis.kind === 'function2d' ? getInspectedFunctionLabel(analysisMode, inspectX) : ''
+  const geometryViewportRows = mathAnalysis.kind === 'geometry2d' ? analysisRows.slice(1, 4) : []
   const activeTransformExpression =
     analysisMode === 'derivative'
       ? mathAnalysis.symbolicDerivative
@@ -2274,7 +2621,7 @@ function App() {
               orbitEnabled={orbitEnabled}
               visualizationMode={visualizationMode}
             />
-            {mathAnalysis.kind === 'function2d' && (
+            {hasCoordinateViewport && (
               <div className="viewport-controls" aria-label="Graph display controls">
                 <button
                   className={axisValuesVisible ? 'active' : undefined}
@@ -2331,6 +2678,16 @@ function App() {
                     <strong>horizontal line</strong>
                   </>
                 )}
+              </div>
+            )}
+            {geometryViewportRows.length > 0 && (
+              <div className="viewport-inspector">
+                {geometryViewportRows.map(([label, value]) => (
+                  <span className="viewport-inspector-row" key={label}>
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </span>
+                ))}
               </div>
             )}
           </section>

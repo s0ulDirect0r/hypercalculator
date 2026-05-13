@@ -6,6 +6,7 @@ The current prototype treats expressions as mathematical objects with matching a
 
 - a macOS-inspired calculator window
 - stable 2D graphing for algebraic functions like `x^2 - 4`
+- a 2D geometry lab for points, segments, circles, and triangles
 - root solving over `[-10, 10]`
 - symbolic derivative and antiderivative modes powered by Nerdamer
 - signed integral-area context over `[-2, 2]`

@@ -418,6 +418,10 @@
   text-transform: uppercase;
 }
 
+.viewport-inspector-row {
+  display: contents;
+}
+
 .viewport-inspector strong {
   color: #f7f3f5;
   font-size: 13px;
