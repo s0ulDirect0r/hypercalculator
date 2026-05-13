@@ -103,6 +103,12 @@ type MathAnalysis = {
   vector: VectorParts | null
   yIntercept: number | null
 }
+type SpiritMood = 'curious' | 'idle' | 'observing' | 'pending'
+type SpiritPrompt = {
+  label: string
+  message: string
+  mood: SpiritMood
+}
 
 type MathToken = {
   type: 'comma' | 'function' | 'identifier' | 'lparen' | 'number' | 'operator' | 'rparen'
@@ -1014,21 +1020,6 @@ const getMathKind = (
   return 'scalar'
 }
 
-const getViewportModeLabel = (kind: MathObjectKind) => {
-  const labels: Record<MathObjectKind, string> = {
-    complex: 'complex plane',
-    function2d: '2D function',
-    geometry2d: 'geometry lab',
-    primitive3d: '3D primitive',
-    ratio: 'division ratio',
-    scalar: 'scalar value',
-    surface3d: 'surface function',
-    vector: 'vector plane',
-  }
-
-  return labels[kind]
-}
-
 const formatRoot = (root: number) => (Math.abs(root) < 0.000001 ? '0' : formatValue(root))
 
 const formatRootAnalysis = (analysis: RootAnalysis) => {
@@ -1044,6 +1035,159 @@ const formatRootAnalysis = (analysis: RootAnalysis) => {
     case 'not-function':
     default:
       return ''
+  }
+}
+
+const getSpiritPrompt = (
+  mathAnalysis: MathAnalysis,
+  expression: string,
+  hasPendingExpression: boolean,
+): SpiritPrompt => {
+  const normalizedExpression = normalizeExpressionForMath(expression)
+  const isIdleExpression = mathAnalysis.kind === 'scalar' && (!normalizedExpression || normalizedExpression === '0')
+
+  if (hasPendingExpression) {
+    return {
+      label: 'listening',
+      message: 'I can feel something forming. Press = when you want me to look at it.',
+      mood: 'pending',
+    }
+  }
+
+  if (isIdleExpression) {
+    return {
+      label: 'drifting',
+      message: 'Give me an expression when you are ready. I will stay with it.',
+      mood: 'idle',
+    }
+  }
+
+  if (mathAnalysis.kind === 'function2d') {
+    if (mathAnalysis.activeRootAnalysis.kind === 'roots') {
+      return {
+        label: 'noticing',
+        message: `This curve touches zero at ${formatRootAnalysis(mathAnalysis.activeRootAnalysis)}.`,
+        mood: 'curious',
+      }
+    }
+
+    if (mathAnalysis.symbolicDerivative) {
+      return {
+        label: 'watching slope',
+        message: `The derivative is ${displayExpression(mathAnalysis.symbolicDerivative)}. Try inspecting different x values.`,
+        mood: 'observing',
+      }
+    }
+
+    return {
+      label: 'observing',
+      message: 'I am watching the shape. Roots, slope, and area are the first clues.',
+      mood: 'observing',
+    }
+  }
+
+  if (mathAnalysis.kind === 'geometry2d' && mathAnalysis.geometry) {
+    const geometry = mathAnalysis.geometry
+    if (geometry.kind === 'circle') {
+      return {
+        label: 'circle thought',
+        message: 'Radius is the lever here. Area grows with the square of it.',
+        mood: 'curious',
+      }
+    }
+
+    if (geometry.kind === 'segment') {
+      return {
+        label: 'measuring',
+        message: 'A segment is distance, midpoint, and slope all at once.',
+        mood: 'observing',
+      }
+    }
+
+    if (geometry.kind === 'triangle') {
+      return {
+        label: 'triangle thought',
+        message: 'Centroid marks the balance point. Area tells how much plane it claims.',
+        mood: 'curious',
+      }
+    }
+
+    return {
+      label: 'point held',
+      message: 'A point is small, but it can become an anchor for everything else.',
+      mood: 'observing',
+    }
+  }
+
+  if (mathAnalysis.kind === 'primitive3d' && mathAnalysis.primitive3d) {
+    const primitive = mathAnalysis.primitive3d
+    if (primitive.kind === 'sphere') {
+      return {
+        label: 'sphere thought',
+        message: 'Radius drives volume cubically. Small changes become large quickly.',
+        mood: 'curious',
+      }
+    }
+
+    if (primitive.kind === 'plane') {
+      return {
+        label: 'plane thought',
+        message: 'The normal vector tells which way the plane is facing.',
+        mood: 'observing',
+      }
+    }
+
+    if (primitive.kind === 'line3d') {
+      return {
+        label: 'line thought',
+        message: 'Two points determine direction. The unit direction is the line distilled.',
+        mood: 'observing',
+      }
+    }
+
+    return {
+      label: 'solid thought',
+      message: 'Watch which measurement changes fastest as you edit the dimensions.',
+      mood: 'curious',
+    }
+  }
+
+  if (mathAnalysis.kind === 'vector') {
+    return {
+      label: 'vector thought',
+      message: 'A vector carries both length and direction. Components are its shadow on the axes.',
+      mood: 'observing',
+    }
+  }
+
+  if (mathAnalysis.kind === 'complex') {
+    return {
+      label: 'complex thought',
+      message: 'The same number has a rectangular home and an angular home.',
+      mood: 'curious',
+    }
+  }
+
+  if (mathAnalysis.kind === 'surface3d') {
+    return {
+      label: 'surface thought',
+      message: 'This is height over a plane. Orbit helps you feel where it rises and falls.',
+      mood: 'observing',
+    }
+  }
+
+  if (mathAnalysis.kind === 'ratio') {
+    return {
+      label: 'ratio thought',
+      message: 'Division is structure too: whole units, remainder, and proportion.',
+      mood: 'curious',
+    }
+  }
+
+  return {
+    label: 'steady',
+    message: 'Press = when you want this value to become the next object of attention.',
+    mood: 'observing',
   }
 }
 
@@ -1362,6 +1506,17 @@ function MathViewport({
     const rimLight = new THREE.PointLight(0x69d2ff, 14, 28)
     rimLight.position.set(-4, -2, 3)
     scene.add(rimLight)
+    const spiritIsIdle =
+      mathAnalysis.kind === 'scalar' &&
+      ['0', ''].includes(normalizeExpressionForMath(expression.trim() || '0'))
+    let spiritCloud:
+      | {
+          base: Float32Array
+          idle: boolean
+          points: THREE.Points
+          positions: Float32Array
+        }
+      | null = null
 
     const line = (points: THREE.Vector3[], color: number, opacity = 1) => {
       const geometry = new THREE.BufferGeometry().setFromPoints(points)
@@ -1539,6 +1694,48 @@ function MathViewport({
       }
     }
 
+    const renderSpiritCloud = () => {
+      const count = spiritIsIdle ? 520 : 140
+      const positions = new Float32Array(count * 3)
+      const base = new Float32Array(count * 3)
+      const cloudRadius = spiritIsIdle ? (use2D ? 3.4 : 2.6) : (use2D ? 5.1 : 4.2)
+
+      for (let index = 0; index < count; index += 1) {
+        const seed = index + 1
+        const theta = seed * 2.399963
+        const phi = Math.acos(1 - (2 * (seed - 0.5)) / count)
+        const radialNoise = 0.74 + ((seed * 37) % 100) / 260
+        const radius = spiritIsIdle
+          ? cloudRadius * radialNoise
+          : cloudRadius + Math.sin(seed * 1.77) * 0.34
+        const x = Math.cos(theta) * Math.sin(phi) * radius
+        const y = Math.sin(theta) * Math.sin(phi) * radius * (use2D ? 0.72 : 1)
+        const z = use2D ? -0.16 + Math.sin(seed * 0.61) * 0.08 : Math.cos(phi) * radius
+
+        positions[index * 3] = x
+        positions[index * 3 + 1] = y
+        positions[index * 3 + 2] = z
+        base[index * 3] = x
+        base[index * 3 + 1] = y
+        base[index * 3 + 2] = z
+      }
+
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      const material = new THREE.PointsMaterial({
+        color: spiritIsIdle ? 0x8ff3ff : 0x6ee7ff,
+        depthWrite: false,
+        opacity: spiritIsIdle ? 0.68 : 0.24,
+        size: use2D ? 0.045 / graphZoom : 0.055,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+      })
+      const points = new THREE.Points(geometry, material)
+      points.position.z = use2D ? -0.04 : 0
+      group.add(points)
+      spiritCloud = { base, idle: spiritIsIdle, points, positions }
+    }
+
     const render3DReferenceFrame = () => {
       const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
       grid.position.y = -2.2
@@ -1566,6 +1763,8 @@ function MathViewport({
         })
       }
     }
+
+    renderSpiritCloud()
 
     if (mathAnalysis.kind === 'function2d') {
       render2DGrid()
@@ -2109,7 +2308,7 @@ function MathViewport({
           )
         }
       }
-    } else {
+    } else if (!spiritIsIdle) {
       const scalar = Number.isFinite(numericValue ?? NaN) ? Number(numericValue) : 0
       const visibleValue = clamp(scalar, -10, 10)
       const scaleWidth = 6
@@ -2225,6 +2424,24 @@ function MathViewport({
     let animationFrame = 0
     const animate = () => {
       animationFrame = requestAnimationFrame(animate)
+      const elapsed = Date.now() * 0.001
+      if (spiritCloud) {
+        const amplitude = spiritCloud.idle ? 0.13 : 0.045
+        for (let index = 0; index < spiritCloud.positions.length / 3; index += 1) {
+          const offset = index * 3
+          const pulse = Math.sin(elapsed * (spiritCloud.idle ? 0.85 : 0.55) + index * 0.37)
+          const drift = Math.cos(elapsed * 0.42 + index * 0.19)
+          spiritCloud.positions[offset] = spiritCloud.base[offset] + drift * amplitude * 0.38
+          spiritCloud.positions[offset + 1] = spiritCloud.base[offset + 1] + pulse * amplitude
+          spiritCloud.positions[offset + 2] = spiritCloud.base[offset + 2] + drift * amplitude * 0.24
+        }
+        const positionAttribute = spiritCloud.points.geometry.getAttribute('position')
+        positionAttribute.needsUpdate = true
+        spiritCloud.points.rotation.z += spiritCloud.idle ? 0.0009 : 0.00025
+        if (!use2D) {
+          spiritCloud.points.rotation.y += spiritCloud.idle ? 0.0012 : 0.00035
+        }
+      }
       if (orbitEnabled && !use2D) {
         group.rotation.y += 0.003
         group.rotation.x = Math.sin(Date.now() * 0.00035) * 0.08
@@ -2241,7 +2458,7 @@ function MathViewport({
       renderer.domElement.removeEventListener('pointerup', handlePointerUp)
       renderer.domElement.removeEventListener('pointercancel', handlePointerUp)
       scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
+        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
           object.geometry.dispose()
           if (Array.isArray(object.material)) {
             object.material.forEach((material) => material.dispose())
@@ -2274,7 +2491,7 @@ function MathViewport({
 }
 
 function App() {
-  const initialExpression = formatExpressionInput('x^2 - 4')
+  const initialExpression = formatExpressionInput('0')
   const [expression, setExpression] = useState(initialExpression)
   const [committedExpression, setCommittedExpression] = useState(initialExpression)
   const [angleMode, setAngleMode] = useState<AngleMode>('rad')
@@ -2289,7 +2506,7 @@ function App() {
   const [shiftSecondary, setShiftSecondary] = useState(false)
   const [lastActionWasEvaluation, setLastActionWasEvaluation] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [geometryComposerOpen, setGeometryComposerOpen] = useState(true)
+  const [geometryComposerOpen, setGeometryComposerOpen] = useState(false)
   const [geometryComposerKind, setGeometryComposerKind] =
     useState<GeometryComposerKind>('circle')
   const [geometryComposerFields, setGeometryComposerFields] = useState<Record<string, string>>(
@@ -2975,8 +3192,6 @@ function App() {
     mathAnalysis.kind === 'vector' ||
     mathAnalysis.kind === 'complex'
   const functionSymbol = getFunctionSymbol(analysisMode)
-  const activeFunctionExpression =
-    mathAnalysis.kind === 'function2d' ? mathAnalysis.activeExpression : committedExpression
   const inspectedFunctionLabel =
     mathAnalysis.kind === 'function2d' ? getInspectedFunctionLabel(analysisMode, inspectX) : ''
   const geometryViewportRows =
@@ -2997,7 +3212,10 @@ function App() {
       : mathAnalysis.kind === 'function2d'
         ? getFunctionResultLabel(analysisMode)
         : evaluated.label
-  const showViewportReadout = mathAnalysis.kind !== 'primitive3d'
+  const spiritPrompt = useMemo(
+    () => getSpiritPrompt(mathAnalysis, committedExpression, hasPendingExpression),
+    [committedExpression, hasPendingExpression, mathAnalysis],
+  )
   const geometryObjectChoices: Array<{
     icon: ReactNode
     kind: GeometryComposerKind
@@ -3077,16 +3295,6 @@ function App() {
                 </button>
               </div>
             )}
-            {showViewportReadout && (
-              <div className="viewport-readout">
-                <span>
-                  {mathAnalysis.kind === 'function2d'
-                    ? getFunctionResultLabel(analysisMode)
-                    : getViewportModeLabel(mathAnalysis.kind)}
-                </span>
-                <strong>{displayExpression(activeFunctionExpression) || '0'}</strong>
-              </div>
-            )}
             {mathAnalysis.kind === 'function2d' && (
               <div className="viewport-inspector">
                 <span>inspect x</span>
@@ -3113,6 +3321,11 @@ function App() {
             )}
           </section>
         </div>
+
+        <section className={`spirit-message ${spiritPrompt.mood}`} aria-live="polite">
+          <span>{spiritPrompt.label}</span>
+          <p>{spiritPrompt.message}</p>
+        </section>
 
         <section className="calculator-deck">
           <div className={`display-strip ${isDisplayObject || hasPendingExpression ? 'function-display' : ''}`}>
