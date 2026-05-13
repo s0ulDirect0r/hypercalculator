@@ -33,6 +33,10 @@
     inset 0 -1px rgba(110, 231, 255, 0.06);
 }
 
+.hyper-window.canvas-hidden {
+  min-height: auto;
+}
+
 .window-bar {
   min-height: 72px;
   display: flex;

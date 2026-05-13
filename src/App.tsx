@@ -11,6 +11,8 @@ import {
   Cylinder,
   Delete,
   Dices,
+  Eye,
+  EyeOff,
   Hash,
   History,
   RotateCcw,
@@ -2498,6 +2500,7 @@ function App() {
   const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('auto')
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('function')
   const [axisValuesVisible, setAxisValuesVisible] = useState(true)
+  const [canvasVisible, setCanvasVisible] = useState(true)
   const [graphZoom, setGraphZoom] = useState(1)
   const [inspectX, setInspectX] = useState(1)
   const [orbitEnabled, setOrbitEnabled] = useState(false)
@@ -3235,7 +3238,7 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="hyper-window" aria-label="Hypercalculator">
+      <section className={`hyper-window ${canvasVisible ? '' : 'canvas-hidden'}`} aria-label="Hypercalculator">
         <header className="window-bar">
           <div className="window-title">
             <Sparkles size={16} />
@@ -3243,84 +3246,86 @@ function App() {
           </div>
         </header>
 
-        <div className="workspace">
-          <section className="visual-panel">
-            <MathViewport
-              analysisMode={analysisMode}
-              angleMode={angleMode}
-              axisValuesVisible={axisValuesVisible}
-              expression={committedExpression}
-              graphZoom={graphZoom}
-              inspectX={inspectX}
-              mathAnalysis={mathAnalysis}
-              numericValue={evaluated.numeric}
-              onInspectXChange={updateInspectX}
-              orbitEnabled={orbitEnabled}
-              visualizationMode={visualizationMode}
-            />
-            {hasViewportControls && (
-              <div className="viewport-controls" aria-label="Graph display controls">
-                <button
-                  className={axisValuesVisible ? 'active' : undefined}
-                  onClick={() => setAxisValuesVisible((visible) => !visible)}
-                  title="Toggle axis values"
-                  type="button"
-                >
-                  <Hash size={15} />
-                  <span>values</span>
-                </button>
-                <button
-                  aria-label="Zoom graph out"
-                  onClick={() => zoomGraph('out')}
-                  title="Zoom out"
-                  type="button"
-                >
-                  <ZoomOut size={15} />
-                </button>
-                <button
-                  aria-label="Reset graph zoom"
-                  onClick={() => setGraphZoom(1)}
-                  title="Reset zoom"
-                  type="button"
-                >
-                  {Math.round(graphZoom * 100)}%
-                </button>
-                <button
-                  aria-label="Zoom graph in"
-                  onClick={() => zoomGraph('in')}
-                  title="Zoom in"
-                  type="button"
-                >
-                  <ZoomIn size={15} />
-                </button>
-              </div>
-            )}
-            {mathAnalysis.kind === 'function2d' && (
-              <div className="viewport-inspector">
-                <span>inspect x</span>
-                <strong>{formatValue(inspectX)}</strong>
-                <span>{inspectedFunctionLabel}</span>
-                <strong>{inspectedActiveValue === null ? 'not available' : formatValue(inspectedActiveValue)}</strong>
-                {isConstantActiveFunction && (
-                  <>
-                    <span>shape</span>
-                    <strong>horizontal line</strong>
-                  </>
-                )}
-              </div>
-            )}
-            {geometryViewportRows.length > 0 && (
-              <div className="viewport-inspector">
-                {geometryViewportRows.map(([label, value]) => (
-                  <span className="viewport-inspector-row" key={label}>
-                    <span>{label}</span>
-                    <strong>{value}</strong>
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+        {canvasVisible && (
+          <div className="workspace">
+            <section className="visual-panel">
+              <MathViewport
+                analysisMode={analysisMode}
+                angleMode={angleMode}
+                axisValuesVisible={axisValuesVisible}
+                expression={committedExpression}
+                graphZoom={graphZoom}
+                inspectX={inspectX}
+                mathAnalysis={mathAnalysis}
+                numericValue={evaluated.numeric}
+                onInspectXChange={updateInspectX}
+                orbitEnabled={orbitEnabled}
+                visualizationMode={visualizationMode}
+              />
+              {hasViewportControls && (
+                <div className="viewport-controls" aria-label="Graph display controls">
+                  <button
+                    className={axisValuesVisible ? 'active' : undefined}
+                    onClick={() => setAxisValuesVisible((visible) => !visible)}
+                    title="Toggle axis values"
+                    type="button"
+                  >
+                    <Hash size={15} />
+                    <span>values</span>
+                  </button>
+                  <button
+                    aria-label="Zoom graph out"
+                    onClick={() => zoomGraph('out')}
+                    title="Zoom out"
+                    type="button"
+                  >
+                    <ZoomOut size={15} />
+                  </button>
+                  <button
+                    aria-label="Reset graph zoom"
+                    onClick={() => setGraphZoom(1)}
+                    title="Reset zoom"
+                    type="button"
+                  >
+                    {Math.round(graphZoom * 100)}%
+                  </button>
+                  <button
+                    aria-label="Zoom graph in"
+                    onClick={() => zoomGraph('in')}
+                    title="Zoom in"
+                    type="button"
+                  >
+                    <ZoomIn size={15} />
+                  </button>
+                </div>
+              )}
+              {mathAnalysis.kind === 'function2d' && (
+                <div className="viewport-inspector">
+                  <span>inspect x</span>
+                  <strong>{formatValue(inspectX)}</strong>
+                  <span>{inspectedFunctionLabel}</span>
+                  <strong>{inspectedActiveValue === null ? 'not available' : formatValue(inspectedActiveValue)}</strong>
+                  {isConstantActiveFunction && (
+                    <>
+                      <span>shape</span>
+                      <strong>horizontal line</strong>
+                    </>
+                  )}
+                </div>
+              )}
+              {geometryViewportRows.length > 0 && (
+                <div className="viewport-inspector">
+                  {geometryViewportRows.map(([label, value]) => (
+                    <span className="viewport-inspector-row" key={label}>
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
 
         <section className={`spirit-message ${spiritPrompt.mood}`} aria-live="polite">
           <span>{spiritPrompt.label}</span>
@@ -3424,6 +3429,16 @@ function App() {
           <div className="status-strip">
             <span>{angleMode.toUpperCase()}</span>
             <span>MEM {formatValue(memory)}</span>
+            <button
+              aria-pressed={!canvasVisible}
+              className={canvasVisible ? undefined : 'active'}
+              onClick={() => setCanvasVisible((visible) => !visible)}
+              title={canvasVisible ? 'Hide canvas' : 'Show canvas'}
+              type="button"
+            >
+              {canvasVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+              <span>{canvasVisible ? 'hide canvas' : 'show canvas'}</span>
+            </button>
             <button
               className={geometryComposerOpen ? 'active' : undefined}
               onClick={() => setGeometryComposerOpen((open) => !open)}
