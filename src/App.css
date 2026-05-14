@@ -306,6 +306,17 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  border-radius: 8px;
+  transition:
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.expression-editor:focus-within {
+  background: rgba(110, 231, 255, 0.035);
+  box-shadow:
+    0 0 0 1px rgba(110, 231, 255, 0.22),
+    0 0 24px rgba(110, 231, 255, 0.08);
 }
 
 .expression-input {
@@ -317,7 +328,7 @@
   overflow: hidden;
   border: 0;
   color: transparent;
-  caret-color: transparent;
+  caret-color: rgba(110, 231, 255, 0.94);
   background: transparent;
   font-size: clamp(18px, 2vw, 34px);
   font-family: inherit;
@@ -326,6 +337,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   appearance: none;
+  text-shadow: none;
+}
+
+.expression-input::selection {
+  color: transparent;
+  background: rgba(110, 231, 255, 0.22);
 }
 
 .expression-render {

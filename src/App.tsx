@@ -1,7 +1,4 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { evaluate } from 'mathjs'
-import nerdamer from 'nerdamer'
-import 'nerdamer/Calculus'
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Circle,
@@ -26,20 +23,33 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import * as THREE from 'three'
+import { type Point2D, type Point3D } from './geometryObjectModel'
 import {
-  type Geometry2DObject,
-  type Point2D,
-  type Point3D,
-  type Primitive3DObject,
-  parseGeometry2DObject,
-  parsePrimitive3DObject,
-  splitTopLevelComma,
-} from './geometryObjectModel'
+  type AnalysisMode,
+  type AngleMode,
+  type MathAnalysis,
+  type VisualizationMode,
+  appendToken,
+  derivativeAt,
+  displayExpression,
+  evaluateForPoint,
+  evaluateMathAnalysis,
+  evaluateRawForPoint,
+  formatExpressionForDisplay,
+  formatExpressionInput,
+  formatRootAnalysis,
+  formatValue,
+  insertPercent,
+  isDisplayMathKind,
+  makeAnalysis,
+  normalizeExpressionForMath,
+  parseSimpleDivision,
+  plainFromVulgarFraction,
+  shouldContinueEvaluatedResult,
+  toggleSign,
+} from './mathEngine'
 import './App.css'
 
-type AngleMode = 'rad' | 'deg'
-type VisualizationMode = 'auto' | 'fx' | 'fxy'
-type AnalysisMode = 'function' | 'derivative' | 'integral'
 type GeometryComposerKind =
   | 'circle'
   | 'cone'
@@ -51,59 +61,9 @@ type GeometryComposerKind =
   | 'segment'
   | 'sphere'
   | 'triangle'
-type MathObjectKind =
-  | 'complex'
-  | 'function2d'
-  | 'geometry2d'
-  | 'primitive3d'
-  | 'ratio'
-  | 'scalar'
-  | 'surface3d'
-  | 'vector'
 type HistoryItem = {
   expression: string
   value: string
-}
-type RootAnalysis =
-  | { kind: 'identity'; roots: number[] }
-  | { kind: 'invalid'; roots: number[] }
-  | { kind: 'none'; roots: number[] }
-  | { kind: 'not-function'; roots: number[] }
-  | { kind: 'roots'; roots: number[] }
-type DivisionParts = {
-  denominator: number
-  fraction: number
-  numerator: number
-  remainder: number | null
-  value: number
-  whole: number
-}
-type VectorParts = {
-  angle: number
-  magnitude: number
-  x: number
-  y: number
-}
-type ComplexParts = {
-  angle: number
-  conjugate: string
-  im: number
-  magnitude: number
-  re: number
-}
-type MathAnalysis = {
-  activeExpression: string
-  activeRootAnalysis: RootAnalysis
-  complex: ComplexParts | null
-  geometry: Geometry2DObject | null
-  integralArea: number | null
-  kind: MathObjectKind
-  primitive3d: Primitive3DObject | null
-  rootAnalysis: RootAnalysis
-  symbolicDerivative: string | null
-  symbolicIntegral: string | null
-  vector: VectorParts | null
-  yIntercept: number | null
 }
 type SpiritMood = 'curious' | 'idle' | 'observing' | 'pending'
 type SpiritPrompt = {
@@ -112,10 +72,6 @@ type SpiritPrompt = {
   mood: SpiritMood
 }
 
-type MathToken = {
-  type: 'comma' | 'function' | 'identifier' | 'lparen' | 'number' | 'operator' | 'rparen'
-  value: string
-}
 type GeometryFieldConfig = {
   key: string
   label: string
@@ -337,233 +293,6 @@ const randomGeometryFields = (kind: GeometryComposerKind): Record<string, string
   }
 }
 
-const mathFunctionNames = new Set([
-  'abs',
-  'acos',
-  'asin',
-  'atan',
-  'cbrt',
-  'cos',
-  'cosh',
-  'ln',
-  'log',
-  'log2',
-  'log10',
-  'nthRoot',
-  'rand',
-  'sin',
-  'sinh',
-  'sqrt',
-  'tan',
-  'tanh',
-])
-
-const superscriptCharacters = '⁰¹²³⁴⁵⁶⁷⁸⁹⁻'
-const superscriptFromPlain: Record<string, string> = {
-  '-': '⁻',
-  '0': '⁰',
-  '1': '¹',
-  '2': '²',
-  '3': '³',
-  '4': '⁴',
-  '5': '⁵',
-  '6': '⁶',
-  '7': '⁷',
-  '8': '⁸',
-  '9': '⁹',
-}
-const plainFromSuperscript = Object.fromEntries(
-  Object.entries(superscriptFromPlain).map(([plain, superscript]) => [superscript, plain]),
-)
-const vulgarFractionCharacters = '¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞'
-const vulgarFractionFromPlain: Record<string, string> = {
-  '1/2': '½',
-  '1/3': '⅓',
-  '2/3': '⅔',
-  '1/4': '¼',
-  '3/4': '¾',
-  '1/5': '⅕',
-  '2/5': '⅖',
-  '3/5': '⅗',
-  '4/5': '⅘',
-  '1/6': '⅙',
-  '5/6': '⅚',
-  '1/7': '⅐',
-  '1/8': '⅛',
-  '3/8': '⅜',
-  '5/8': '⅝',
-  '7/8': '⅞',
-  '1/9': '⅑',
-  '1/10': '⅒',
-}
-const plainFromVulgarFraction = Object.fromEntries(
-  Object.entries(vulgarFractionFromPlain).map(([plain, fraction]) => [fraction, plain]),
-)
-
-const toSuperscript = (value: string) =>
-  value.replace(/[-0-9]/g, (character) => superscriptFromPlain[character] ?? character)
-
-const fromSuperscript = (value: string) =>
-  value.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]/g, (character) => plainFromSuperscript[character] ?? character)
-
-const formatExponentsInput = (expression: string) => {
-  let formatted = ''
-
-  for (let index = 0; index < expression.length; index += 1) {
-    const character = expression[index]
-    const previousFormattedCharacter = formatted.at(-1) ?? ''
-
-    if (character === '^') {
-      let exponentEnd = index + 1
-      if (expression[exponentEnd] === '-') {
-        exponentEnd += 1
-      }
-
-      while (/\d/.test(expression[exponentEnd] ?? '')) {
-        exponentEnd += 1
-      }
-
-      const exponent = expression.slice(index + 1, exponentEnd)
-      const nextCharacter = expression[exponentEnd]
-      const isChainedExponent = /\^-?\d+$/.test(expression.slice(0, index))
-      const canFormatExponent =
-        exponent.length > 0 &&
-        exponent !== '-' &&
-        !superscriptCharacters.includes(previousFormattedCharacter) &&
-        !isChainedExponent &&
-        nextCharacter !== '^'
-
-      if (canFormatExponent) {
-        formatted += toSuperscript(exponent)
-        index = exponentEnd - 1
-        continue
-      }
-    }
-
-    if (superscriptCharacters.includes(character)) {
-      let digitEnd = index + 1
-      while (/\d/.test(expression[digitEnd] ?? '')) {
-        digitEnd += 1
-      }
-
-      formatted += `${character}${toSuperscript(expression.slice(index + 1, digitEnd))}`
-      index = digitEnd - 1
-      continue
-    }
-
-    formatted += character
-  }
-
-  return formatted
-}
-
-const formatExpressionInput = (expression: string) =>
-  formatExponentsInput(expression)
-    .replace(
-      /(?<![0-9A-Za-z.)\]}>⁰¹²³⁴⁵⁶⁷⁸⁹⁻])([1-9])\/(10|[2-9])(?![0-9A-Za-z({[<⁰¹²³⁴⁵⁶⁷⁸⁹⁻])/g,
-      (match) => vulgarFractionFromPlain[match] ?? match,
-    )
-
-const expandFormattedExponents = (expression: string) =>
-  expression.replace(
-    new RegExp(`[${superscriptCharacters}]+`, 'g'),
-    (exponent) => `^${fromSuperscript(exponent)}`,
-  )
-
-const expandFormattedFractions = (expression: string) =>
-  expression.replace(
-    new RegExp(`[${vulgarFractionCharacters}]`, 'g'),
-    (fraction) => `(${plainFromVulgarFraction[fraction]})`,
-  )
-
-const normalizeExpressionForMath = (expression: string) => {
-  const compact = expandFormattedFractions(expandFormattedExponents(expression))
-    .replaceAll('−', '-')
-    .replaceAll('×', '*')
-    .replaceAll('÷', '/')
-    .replaceAll('π', 'pi')
-    .replace(/\s+/g, '')
-  const tokens: MathToken[] = []
-
-  for (let index = 0; index < compact.length; ) {
-    const current = compact[index]
-    const numberMatch = compact.slice(index).match(/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/)
-
-    if (numberMatch) {
-      tokens.push({ type: 'number', value: numberMatch[0] })
-      index += numberMatch[0].length
-      continue
-    }
-
-    if (/[A-Za-z]/.test(current)) {
-      const letterMatch = compact.slice(index).match(/^[A-Za-z]+/)
-      const letters = letterMatch?.[0] ?? current
-      let value = letters
-
-      if (letters === 'log' && compact.slice(index + letters.length).startsWith('10(')) {
-        value = 'log10'
-      } else if (letters === 'log' && compact.slice(index + letters.length).startsWith('2(')) {
-        value = 'log2'
-      }
-
-      const next = compact[index + value.length]
-      tokens.push({
-        type: mathFunctionNames.has(value) && next === '(' ? 'function' : 'identifier',
-        value,
-      })
-      index += value.length
-      continue
-    }
-
-    if (current === '(') {
-      tokens.push({ type: 'lparen', value: current })
-    } else if (current === ')') {
-      tokens.push({ type: 'rparen', value: current })
-    } else if (current === ',') {
-      tokens.push({ type: 'comma', value: current })
-    } else {
-      tokens.push({ type: 'operator', value: current })
-    }
-
-    index += 1
-  }
-
-  return tokens.reduce((normalized, token, index) => {
-    const previous = tokens[index - 1]
-    const previousCanEndFactor =
-      previous?.type === 'number' ||
-      previous?.type === 'identifier' ||
-      previous?.type === 'rparen' ||
-      previous?.value === '!'
-    const currentCanStartFactor =
-      token.type === 'number' ||
-      token.type === 'identifier' ||
-      token.type === 'function' ||
-      token.type === 'lparen'
-    const needsImplicitMultiplication =
-      previousCanEndFactor &&
-      currentCanStartFactor &&
-      !(previous?.type === 'function' && token.type === 'lparen')
-
-    return `${normalized}${needsImplicitMultiplication ? '*' : ''}${token.value}`
-  }, '')
-}
-
-const formatExpressionForDisplay = (expression: string, divideSymbol: '/' | '÷' = '÷') =>
-  formatExpressionInput(expression)
-    .replaceAll('nthRoot', 'ʸ√')
-    .replaceAll('cbrt', '∛')
-    .replaceAll('log10', 'log₁₀')
-    .replaceAll('log2', 'log₂')
-    .replaceAll('sqrt', '√')
-    .replace(/\bpi\b/g, 'π')
-    .replaceAll('*', '×')
-    .replace(/(?<=[0-9πe)])×(?=[xytπe√(])/g, '')
-    .replace(/(?<=[xyt])×(?=\()/g, '')
-    .replaceAll('/', divideSymbol)
-
-const displayExpression = (expression: string) => formatExpressionForDisplay(expression, '÷')
-
 const renderMathExpression = (expression: string): ReactNode[] => {
   const formatted = formatExpressionForDisplay(expression, '/').replace(
     /[¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/g,
@@ -605,440 +334,10 @@ const renderMathExpression = (expression: string): ReactNode[] => {
   return nodes.length > 0 ? nodes : [formatted]
 }
 
-const toSymbolicExpression = (expression: string) =>
-  normalizeExpressionForMath(expression)
-    .replaceAll('pi', 'PI')
-    .replaceAll('log10', 'log')
-    .replaceAll('ln(', 'log(')
-
-const fromSymbolicExpression = (expression: string) =>
-  expression
-    .replaceAll('PI', 'pi')
-    .replaceAll('ln(', 'log(')
-
-const getSymbolicTransform = (expression: string, transform: 'derivative' | 'integral') => {
-  try {
-    const symbolicExpression = toSymbolicExpression(expression)
-
-    if (!symbolicExpression || !/\b[x]\b/.test(symbolicExpression) || /\by\b/.test(symbolicExpression)) {
-      return null
-    }
-
-    const result =
-      transform === 'derivative'
-        ? nerdamer.diff(symbolicExpression, 'x')
-        : nerdamer.integrate(symbolicExpression, 'x')
-
-    return fromSymbolicExpression(result.toString())
-  } catch {
-    return null
-  }
-}
-
-const formatValue = (value: unknown) => {
-  const numeric = Number(value)
-
-  if (!Number.isFinite(numeric)) {
-    return String(value)
-  }
-
-  if (Math.abs(numeric) >= 1e12 || (Math.abs(numeric) > 0 && Math.abs(numeric) < 1e-8)) {
-    return numeric.toExponential(8).replace(/\.?0+e/, 'e')
-  }
-
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 10,
-    maximumSignificantDigits: 12,
-  }).format(numeric)
-}
-
-const buildScope = (angleMode: AngleMode, extraScope: Record<string, number> = {}) => {
-  const toRadians = (value: number) => (angleMode === 'deg' ? (value * Math.PI) / 180 : value)
-  const fromRadians = (value: number) => (angleMode === 'deg' ? (value * 180) / Math.PI : value)
-  const nthRoot = (value: number, root: number) => {
-    if (root === 0) {
-      return NaN
-    }
-
-    const rootIsOddInteger = Number.isInteger(root) && Math.abs(root % 2) === 1
-    if (value < 0 && rootIsOddInteger) {
-      return -(Math.abs(value) ** (1 / root))
-    }
-
-    return value ** (1 / root)
-  }
-
-  return {
-    pi: Math.PI,
-    tau: Math.PI * 2,
-    e: Math.E,
-    sqrt: (value: number) => Math.sqrt(value),
-    cbrt: (value: number) => Math.cbrt(value),
-    nthRoot,
-    sin: (value: number) => Math.sin(toRadians(value)),
-    cos: (value: number) => Math.cos(toRadians(value)),
-    tan: (value: number) => Math.tan(toRadians(value)),
-    asin: (value: number) => fromRadians(Math.asin(value)),
-    acos: (value: number) => fromRadians(Math.acos(value)),
-    atan: (value: number) => fromRadians(Math.atan(value)),
-    sinh: (value: number) => Math.sinh(value),
-    cosh: (value: number) => Math.cosh(value),
-    tanh: (value: number) => Math.tanh(value),
-    ln: (value: number) => Math.log(value),
-    log10: (value: number) => Math.log10(value),
-    log2: (value: number) => Math.log2(value),
-    rand: () => Math.random(),
-    ...extraScope,
-  }
-}
-
-const tryEvaluate = (
-  expression: string,
-  angleMode: AngleMode,
-  extraScope?: Record<string, number>,
-) => {
-  const normalizedExpression = normalizeExpressionForMath(expression)
-
-  if (!normalizedExpression.trim()) {
-    return null
-  }
-
-  return evaluate(normalizedExpression, buildScope(angleMode, extraScope))
-}
-
-const evaluateNumeric = (
-  expression: string,
-  angleMode: AngleMode,
-  extraScope?: Record<string, number>,
-) => {
-  try {
-    const value = tryEvaluate(expression, angleMode, extraScope)
-    const numeric = Number(value)
-    return Number.isFinite(numeric) ? numeric : null
-  } catch {
-    return null
-  }
-}
-
-const parseSimpleDivision = (expression: string): DivisionParts | null => {
-  const compact = normalizeExpressionForMath(expression)
-  const match = compact.match(/^(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/)
-  if (!match) {
-    return null
-  }
-
-  const numerator = Number(match[1])
-  const denominator = Number(match[2])
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
-    return null
-  }
-
-  const value = numerator / denominator
-  const magnitude = Math.abs(value)
-  const whole = Math.floor(magnitude)
-  const fraction = magnitude - whole
-  const remainder =
-    Number.isInteger(numerator) && Number.isInteger(denominator)
-      ? Math.abs(numerator) % Math.abs(denominator)
-      : null
-
-  return {
-    denominator: Math.abs(denominator),
-    fraction,
-    numerator,
-    remainder,
-    value,
-    whole,
-  }
-}
-
 const formatPoint = (point: Point2D) => `(${formatValue(point.x)}, ${formatValue(point.y)})`
 
 const formatPoint3D = (point: Point3D) =>
   `(${formatValue(point.x)}, ${formatValue(point.y)}, ${formatValue(point.z)})`
-
-const parseGeometry = (expression: string, angleMode: AngleMode) =>
-  parseGeometry2DObject(expression, (value) => evaluateNumeric(value, angleMode))
-
-const parsePrimitive3D = (expression: string, angleMode: AngleMode) =>
-  parsePrimitive3DObject(expression, (value) => evaluateNumeric(value, angleMode))
-
-const parseVector = (expression: string, angleMode: AngleMode): VectorParts | null => {
-  const trimmed = expression.trim()
-  const vectorMatch =
-    trimmed.match(/^<(.+)>$/) ?? trimmed.match(/^\[(.+)\]$/) ?? trimmed.match(/^vec\((.+)\)$/i)
-
-  if (!vectorMatch) {
-    return null
-  }
-
-  const pair = splitTopLevelComma(vectorMatch[1])
-  if (!pair) {
-    return null
-  }
-
-  const x = evaluateNumeric(pair[0], angleMode)
-  const y = evaluateNumeric(pair[1], angleMode)
-  if (x === null || y === null) {
-    return null
-  }
-
-  return {
-    angle: (Math.atan2(y, x) * 180) / Math.PI,
-    magnitude: Math.hypot(x, y),
-    x,
-    y,
-  }
-}
-
-const parseComplex = (expression: string): ComplexParts | null => {
-  const compact = expression.replace(/\s+/g, '').replaceAll('−', '-').toLowerCase()
-  if (!compact.endsWith('i') || /[xyt]/.test(compact)) {
-    return null
-  }
-
-  const withoutI = compact.slice(0, -1)
-  let re = 0
-  let imPart = withoutI
-  let splitIndex = -1
-
-  for (let index = 1; index < withoutI.length; index += 1) {
-    if (withoutI[index] === '+' || withoutI[index] === '-') {
-      splitIndex = index
-    }
-  }
-
-  if (splitIndex > 0) {
-    re = Number(withoutI.slice(0, splitIndex))
-    imPart = withoutI.slice(splitIndex)
-  }
-
-  const im =
-    imPart === '' || imPart === '+'
-      ? 1
-      : imPart === '-'
-        ? -1
-        : Number(imPart)
-
-  if (!Number.isFinite(re) || !Number.isFinite(im)) {
-    return null
-  }
-
-  const sign = im < 0 ? '-' : '+'
-  const absIm = Math.abs(im)
-
-  return {
-    angle: (Math.atan2(im, re) * 180) / Math.PI,
-    conjugate: `${formatValue(re)} ${sign === '+' ? '-' : '+'} ${formatValue(absIm)}i`,
-    im,
-    magnitude: Math.hypot(re, im),
-    re,
-  }
-}
-
-const evaluateForPoint = (expression: string, angleMode: AngleMode, x: number, y = 0) => {
-  const numeric = evaluateNumeric(expression, angleMode, { x, y, t: x })
-  return numeric === null ? null : clamp(numeric, -8, 8)
-}
-
-const evaluateRawForPoint = (expression: string, angleMode: AngleMode, x: number) =>
-  evaluateNumeric(expression, angleMode, { x, t: x, y: 0 })
-
-const derivativeAt = (expression: string, angleMode: AngleMode, x: number) => {
-  const h = 0.0001
-  const left = evaluateRawForPoint(expression, angleMode, x - h)
-  const right = evaluateRawForPoint(expression, angleMode, x + h)
-
-  if (left === null || right === null) {
-    return null
-  }
-
-  return (right - left) / (2 * h)
-}
-
-const integrate = (expression: string, angleMode: AngleMode, a: number, b: number) => {
-  const steps = 240
-  const width = (b - a) / steps
-  let total = 0
-
-  for (let index = 0; index <= steps; index += 1) {
-    const x = a + width * index
-    const value = evaluateRawForPoint(expression, angleMode, x)
-
-    if (value === null) {
-      return null
-    }
-
-    const weight = index === 0 || index === steps ? 1 : index % 2 === 0 ? 2 : 4
-    total += weight * value
-  }
-
-  return (total * width) / 3
-}
-
-const analyzeRoots = (expression: string, angleMode: AngleMode): RootAnalysis => {
-  const expr = normalizeExpressionForMath(expression)
-  if (!expr || !/\b[xt]\b/.test(expr) || /\by\b/.test(expr)) {
-    return { kind: 'not-function', roots: [] }
-  }
-
-  const min = -10
-  const max = 10
-  const steps = 500
-  const epsilon = 1e-6
-  const roots: number[] = []
-  let finiteSamples = 0
-  let zeroSamples = 0
-  let previousX: number | null = null
-  let previousY: number | null = null
-
-  const addRoot = (root: number) => {
-    if (!Number.isFinite(root) || root < min - 0.001 || root > max + 0.001) {
-      return
-    }
-
-    if (!roots.some((existing) => Math.abs(existing - root) < 0.01)) {
-      roots.push(root)
-    }
-  }
-
-  for (let index = 0; index <= steps; index += 1) {
-    const x = min + ((max - min) * index) / steps
-    const y = evaluateRawForPoint(expr, angleMode, x)
-
-    if (y === null || Math.abs(y) > 1e8) {
-      previousX = null
-      previousY = null
-      continue
-    }
-
-    finiteSamples += 1
-
-    if (Math.abs(y) < epsilon) {
-      zeroSamples += 1
-      addRoot(x)
-    }
-
-    if (previousX !== null && previousY !== null && previousY * y < 0) {
-      let left = previousX
-      let right = x
-      let leftValue = previousY
-
-      for (let iteration = 0; iteration < 52; iteration += 1) {
-        const mid = (left + right) / 2
-        const midValue = evaluateRawForPoint(expr, angleMode, mid)
-
-        if (midValue === null) {
-          break
-        }
-
-        if (Math.abs(midValue) < 1e-10) {
-          left = mid
-          right = mid
-          break
-        }
-
-        if (leftValue * midValue <= 0) {
-          right = mid
-        } else {
-          left = mid
-          leftValue = midValue
-        }
-      }
-
-      addRoot((left + right) / 2)
-    }
-
-    previousX = x
-    previousY = y
-  }
-
-  if (finiteSamples < 5) {
-    return { kind: 'invalid', roots: [] }
-  }
-
-  if (zeroSamples / finiteSamples > 0.95) {
-    return { kind: 'identity', roots: [] }
-  }
-
-  const sortedRoots = roots.sort((a, b) => a - b)
-  return sortedRoots.length > 0
-    ? { kind: 'roots', roots: sortedRoots }
-    : { kind: 'none', roots: [] }
-}
-
-const resolveVisualizationMode = (expression: string, visualizationMode: VisualizationMode) => {
-  const normalizedExpression = normalizeExpressionForMath(expression)
-
-  if (visualizationMode !== 'auto') {
-    return visualizationMode
-  }
-
-  if (/\by\b/.test(normalizedExpression)) {
-    return 'fxy'
-  }
-
-  if (/\b[xt]\b/.test(normalizedExpression)) {
-    return 'fx'
-  }
-
-  return 'auto'
-}
-
-const getMathKind = (
-  expression: string,
-  angleMode: AngleMode,
-  visualizationMode: VisualizationMode,
-): MathObjectKind => {
-  if (parseGeometry(expression, angleMode)) {
-    return 'geometry2d'
-  }
-
-  if (parsePrimitive3D(expression, angleMode)) {
-    return 'primitive3d'
-  }
-
-  if (parseVector(expression, angleMode)) {
-    return 'vector'
-  }
-
-  if (parseComplex(expression)) {
-    return 'complex'
-  }
-
-  const resolvedMode = resolveVisualizationMode(expression, visualizationMode)
-  if (resolvedMode === 'fxy') {
-    return 'surface3d'
-  }
-
-  if (resolvedMode === 'fx') {
-    return 'function2d'
-  }
-
-  if (parseSimpleDivision(expression)) {
-    return 'ratio'
-  }
-
-  return 'scalar'
-}
-
-const formatRoot = (root: number) => (Math.abs(root) < 0.000001 ? '0' : formatValue(root))
-
-const formatRootAnalysis = (analysis: RootAnalysis) => {
-  switch (analysis.kind) {
-    case 'identity':
-      return 'all real x'
-    case 'invalid':
-      return 'not solvable'
-    case 'none':
-      return 'no real roots in [-10, 10]'
-    case 'roots':
-      return `x = ${analysis.roots.map(formatRoot).join(', ')}`
-    case 'not-function':
-    default:
-      return ''
-  }
-}
 
 const getSpiritPrompt = (
   mathAnalysis: MathAnalysis,
@@ -1231,181 +530,6 @@ const getInspectedFunctionLabel = (analysisMode: AnalysisMode, x: number) => {
   return `f(${formattedX})`
 }
 
-const makeAnalysis = (
-  expression: string,
-  angleMode: AngleMode,
-  visualizationMode: VisualizationMode,
-  analysisMode: AnalysisMode,
-): MathAnalysis => {
-  const geometry = parseGeometry(expression, angleMode)
-  const primitive3d = parsePrimitive3D(expression, angleMode)
-  const vector = parseVector(expression, angleMode)
-  const complex = parseComplex(expression)
-  const kind = getMathKind(expression, angleMode, visualizationMode)
-  const isFunction = kind === 'function2d'
-  const symbolicDerivative = isFunction ? getSymbolicTransform(expression, 'derivative') : null
-  const symbolicIntegral = isFunction ? getSymbolicTransform(expression, 'integral') : null
-  const activeExpression =
-    isFunction && analysisMode === 'derivative' && symbolicDerivative
-      ? symbolicDerivative
-      : isFunction && analysisMode === 'integral' && symbolicIntegral
-        ? symbolicIntegral
-        : expression
-  const rootAnalysis = isFunction ? analyzeRoots(expression, angleMode) : { kind: 'not-function' as const, roots: [] }
-
-  return {
-    activeExpression,
-    activeRootAnalysis: isFunction
-      ? analyzeRoots(activeExpression, angleMode)
-      : { kind: 'not-function', roots: [] },
-    complex,
-    geometry,
-    integralArea: isFunction ? integrate(expression, angleMode, -2, 2) : null,
-    kind,
-    primitive3d,
-    rootAnalysis,
-    symbolicDerivative,
-    symbolicIntegral,
-    vector,
-    yIntercept: isFunction ? evaluateRawForPoint(activeExpression, angleMode, 0) : null,
-  }
-}
-
-const isDisplayMathKind = (kind: MathObjectKind) =>
-  kind === 'function2d' ||
-  kind === 'geometry2d' ||
-  kind === 'primitive3d' ||
-  kind === 'surface3d' ||
-  kind === 'vector' ||
-  kind === 'complex'
-
-const evaluateMathAnalysis = (
-  expression: string,
-  angleMode: AngleMode,
-  mathAnalysis: MathAnalysis,
-) => {
-  try {
-    if (mathAnalysis.kind === 'vector') {
-      return { label: 'vector', numeric: mathAnalysis.vector?.magnitude ?? null, valid: true }
-    }
-
-    if (mathAnalysis.kind === 'complex') {
-      return { label: 'complex', numeric: mathAnalysis.complex?.magnitude ?? null, valid: true }
-    }
-
-    if (mathAnalysis.kind === 'geometry2d') {
-      return { label: 'geometry', numeric: null, valid: true }
-    }
-
-    if (mathAnalysis.kind === 'primitive3d') {
-      return {
-        label:
-          mathAnalysis.primitive3d?.kind === 'line3d'
-            ? '3D line'
-            : mathAnalysis.primitive3d?.kind ?? '3D object',
-        numeric: null,
-        valid: true,
-      }
-    }
-
-    if (mathAnalysis.kind === 'function2d') {
-      return { label: 'function', numeric: null, valid: true }
-    }
-
-    if (mathAnalysis.kind === 'surface3d') {
-      return { label: 'surface', numeric: null, valid: true }
-    }
-
-    const value = tryEvaluate(expression, angleMode)
-    return {
-      label: value === null ? '0' : formatValue(value),
-      numeric: Number(value),
-      valid: true,
-    }
-  } catch {
-    return {
-      label: 'syntax',
-      numeric: null,
-      valid: false,
-    }
-  }
-}
-
-const insertPercent = (expression: string) =>
-  expression.replace(/(\d+\.?\d*)$/, (_, value) => String(Number(value) / 100))
-
-const toggleSign = (expression: string) => {
-  if (!expression.trim() || expression === '0') {
-    return '-'
-  }
-
-  const match = expression.match(/(-?\d+\.?\d*)$/)
-  if (!match || match.index === undefined) {
-    return `-(${expression})`
-  }
-
-  const value = match[1]
-  const nextValue = value.startsWith('-') ? value.slice(1) : `-${value}`
-  return `${expression.slice(0, match.index)}${nextValue}`
-}
-
-const expressionEndsWithBinaryOperator = (expression: string) => /[+\-*/]$/.test(expression)
-
-const currentNumberHasDecimal = (expression: string) => {
-  const normalizedExpression = expandFormattedExponents(expression)
-  const currentNumber = normalizedExpression.split(/[+\-*/^(),]/).at(-1) ?? ''
-  return currentNumber.includes('.')
-}
-
-const appendToken = (expression: string, token: string) => {
-  const currentExpression = expression.trim() || '0'
-  const lastCharacter = currentExpression.at(-1) ?? ''
-  const tokenIsBinaryOperator = ['+', '-', '*', '/'].includes(token)
-  const tokenStartsExpression =
-    /^\d/.test(token) || /^[A-Za-z<[]/.test(token) || token === '(' || token === '-'
-
-  if (token === '.') {
-    if (currentNumberHasDecimal(currentExpression)) {
-      return currentExpression
-    }
-
-    if (currentExpression === '0') {
-      return '0.'
-    }
-
-    if (/[+\-*/^(,]$/.test(currentExpression)) {
-      return `${currentExpression}0.`
-    }
-  }
-
-  if (tokenIsBinaryOperator) {
-    if (currentExpression === '0') {
-      return token === '-' ? '-' : `0${token}`
-    }
-
-    if (currentExpression === '-') {
-      return token === '-' ? currentExpression : `0${token}`
-    }
-
-    if (expressionEndsWithBinaryOperator(currentExpression) || lastCharacter === '^') {
-      return `${currentExpression.slice(0, -1)}${token}`
-    }
-
-    if ((lastCharacter === '(' || lastCharacter === ',') && token !== '-') {
-      return currentExpression
-    }
-  }
-
-  if (currentExpression === '0' && tokenStartsExpression) {
-    return token
-  }
-
-  return `${currentExpression}${token}`
-}
-
-const shouldContinueEvaluatedResult = (token: string) =>
-  ['+', '-', '*', '/', '^', '^2', '^3'].includes(token)
-
 const GRAPH_SCALE = 0.55
 const MAX_GRAPH_EXTENT = 50
 const ORTHOGRAPHIC_HALF_HEIGHT = 5.4
@@ -1443,7 +567,6 @@ function MathViewport({
   numericValue,
   onInspectXChange,
   orbitEnabled,
-  visualizationMode,
 }: {
   analysisMode: AnalysisMode
   angleMode: AngleMode
@@ -1455,9 +578,13 @@ function MathViewport({
   numericValue: number | null
   onInspectXChange: (value: number) => void
   orbitEnabled: boolean
-  visualizationMode: VisualizationMode
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null)
+  const inspectXRef = useRef(inspectX)
+
+  useEffect(() => {
+    inspectXRef.current = inspectX
+  }, [inspectX])
 
   useEffect(() => {
     const mount = mountRef.current
@@ -1922,6 +1049,7 @@ function MathViewport({
     }
 
     renderSpiritCloud()
+    let updateInspectIndicator: (() => void) | null = null
 
     if (mathAnalysis.kind === 'function2d') {
       render2DGrid()
@@ -1983,33 +1111,57 @@ function MathViewport({
         activeSegments.forEach((segment) => line(segment, 0x6ee7ff, 1))
       }
 
-      const inspectedY = evaluateRawForPoint(activeExpression, angleMode, inspectX)
-      if (inspectX >= bounds.minX && inspectX <= bounds.maxX) {
-        line(
-          [
-            toGraphPoint(inspectX, bounds.minY, bounds.minY, bounds.maxY).setZ(0.01),
-            toGraphPoint(inspectX, bounds.maxY, bounds.minY, bounds.maxY).setZ(0.01),
-          ],
-          0xfff2c9,
-          0.28,
-        )
-      }
+      const inspectLineGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0.01),
+        new THREE.Vector3(0, 0, 0.01),
+      ])
+      const inspectLine = new THREE.Line(
+        inspectLineGeometry,
+        new THREE.LineBasicMaterial({
+          color: 0xfff2c9,
+          opacity: 0.28,
+          transparent: true,
+        }),
+      )
+      group.add(inspectLine)
 
-      if (
-        inspectedY !== null &&
-        inspectX >= bounds.minX &&
-        inspectX <= bounds.maxX &&
-        inspectedY >= bounds.minY &&
-        inspectedY <= bounds.maxY
-      ) {
-        const inspectMarker = new THREE.Mesh(
-          new THREE.CircleGeometry(0.13, 32),
-          new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
-        )
-        inspectMarker.position.copy(toGraphPoint(inspectX, inspectedY, bounds.minY, bounds.maxY))
-        inspectMarker.position.z = 0.07
-        group.add(inspectMarker)
+      const inspectMarker = new THREE.Mesh(
+        new THREE.CircleGeometry(0.13, 32),
+        new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
+      )
+      inspectMarker.position.z = 0.07
+      group.add(inspectMarker)
+
+      updateInspectIndicator = () => {
+        const nextInspectX = inspectXRef.current
+        const nextBounds = getVisibleMathBounds()
+        const inspectedY = evaluateRawForPoint(activeExpression, angleMode, nextInspectX)
+        const xVisible = nextInspectX >= nextBounds.minX && nextInspectX <= nextBounds.maxX
+        const yVisible =
+          inspectedY !== null &&
+          inspectedY >= nextBounds.minY &&
+          inspectedY <= nextBounds.maxY
+
+        inspectLine.visible = xVisible
+        inspectMarker.visible = xVisible && yVisible
+
+        if (xVisible) {
+          const linePositions = inspectLineGeometry.getAttribute('position')
+          const bottom = toGraphPoint(nextInspectX, nextBounds.minY, nextBounds.minY, nextBounds.maxY).setZ(0.01)
+          const top = toGraphPoint(nextInspectX, nextBounds.maxY, nextBounds.minY, nextBounds.maxY).setZ(0.01)
+          linePositions.setXYZ(0, bottom.x, bottom.y, bottom.z)
+          linePositions.setXYZ(1, top.x, top.y, top.z)
+          linePositions.needsUpdate = true
+        }
+
+        if (inspectedY !== null && yVisible) {
+          inspectMarker.position.copy(
+            toGraphPoint(nextInspectX, inspectedY, nextBounds.minY, nextBounds.maxY),
+          )
+          inspectMarker.position.z = 0.07
+        }
       }
+      updateInspectIndicator()
 
       if (analysisMode === 'integral') {
         const areaPoints: THREE.Vector3[] = [toGraphPoint(-2, 0, bounds.minY, bounds.maxY)]
@@ -2708,6 +1860,7 @@ function MathViewport({
         group.rotation.y += 0.003
         group.rotation.x = Math.sin(Date.now() * 0.00035) * 0.08
       }
+      updateInspectIndicator?.()
       renderer.render(scene, camera)
     }
     animate()
@@ -2741,12 +1894,10 @@ function MathViewport({
     axisValuesVisible,
     expression,
     graphZoom,
-    inspectX,
     mathAnalysis,
     numericValue,
     onInspectXChange,
     orbitEnabled,
-    visualizationMode,
   ])
 
   return <div className="math-viewport" ref={mountRef} aria-label="Mathematical object visualization" />
@@ -3105,13 +2256,13 @@ function App() {
     setLastActionWasEvaluation(false)
   }
 
-  const updateInspectX = (value: number) => {
+  const updateInspectX = useCallback((value: number) => {
     if (!Number.isFinite(value)) {
       return
     }
 
     setInspectX(Number(clamp(value, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT).toFixed(2)))
-  }
+  }, [])
 
   const zoomGraph = (direction: 'in' | 'out') => {
     setGraphZoom((value) => {
@@ -3520,7 +2671,6 @@ function App() {
                 numericValue={evaluated.numeric}
                 onInspectXChange={updateInspectX}
                 orbitEnabled={orbitEnabled}
-                visualizationMode={visualizationMode}
               />
               {hasViewportControls && (
                 <div className="viewport-controls" aria-label="Graph display controls">
