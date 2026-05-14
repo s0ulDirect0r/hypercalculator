@@ -1517,6 +1517,7 @@ function MathViewport({
           idle: boolean
           points: THREE.Points
           positions: Float32Array
+          shapeTargets: Float32Array[] | null
         }
       | null = null
 
@@ -1697,16 +1698,165 @@ function MathViewport({
     }
 
     const renderSpiritCloud = () => {
-      const count = spiritIsIdle ? 520 : 140
+      const count = spiritIsIdle ? 1080 : 238
       const positions = new Float32Array(count * 3)
       const base = new Float32Array(count * 3)
-      const cloudRadius = spiritIsIdle ? (use2D ? 3.4 : 2.6) : (use2D ? 5.1 : 4.2)
+      const cloudRadius = spiritIsIdle ? (use2D ? 2.85 : 2.3) : (use2D ? 4.8 : 3.9)
+      const randomUnit = (seed: number, salt: number) => {
+        const value = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
+        return value - Math.floor(value)
+      }
+      const writeTargetPoint = (target: Float32Array, index: number, x: number, y: number, z: number) => {
+        const offset = index * 3
+        target[offset] = x
+        target[offset + 1] = y
+        target[offset + 2] = z
+      }
+      const makeTarget = (getPoint: (index: number) => THREE.Vector3) => {
+        const target = new Float32Array(count * 3)
+        for (let index = 0; index < count; index += 1) {
+          const point = getPoint(index)
+          writeTargetPoint(target, index, point.x, point.y, point.z)
+        }
+        return target
+      }
+      const edgePoint = (
+        edges: Array<[THREE.Vector3, THREE.Vector3]>,
+        index: number,
+        jitter = 0.035,
+      ) => {
+        const seed = index + 1
+        const edge = edges[index % edges.length]
+        const along = randomUnit(seed, 2)
+        return new THREE.Vector3().lerpVectors(edge[0], edge[1], along).add(
+          new THREE.Vector3(
+            (randomUnit(seed, 3) - 0.5) * jitter,
+            (randomUnit(seed, 4) - 0.5) * jitter,
+            (randomUnit(seed, 5) - 0.5) * jitter,
+          ),
+        )
+      }
+      const makeIdleShapeTargets = () => {
+        const triangleRadius = cloudRadius * 0.96
+        const triangleVertices = [0, 1, 2].map((corner) => {
+          const angle = -Math.PI / 2 + (corner * Math.PI * 2) / 3
+          return new THREE.Vector3(Math.cos(angle) * triangleRadius, Math.sin(angle) * triangleRadius, 0)
+        })
+        const cubeRadius = cloudRadius * 0.68
+        const cubeVertices = [-1, 1].flatMap((x) =>
+          [-1, 1].flatMap((y) =>
+            [-1, 1].map((z) => new THREE.Vector3(x * cubeRadius, y * cubeRadius, z * cubeRadius)),
+          ),
+        )
+        const cubeEdges: Array<[THREE.Vector3, THREE.Vector3]> = [
+          [cubeVertices[0], cubeVertices[1]],
+          [cubeVertices[0], cubeVertices[2]],
+          [cubeVertices[0], cubeVertices[4]],
+          [cubeVertices[3], cubeVertices[1]],
+          [cubeVertices[3], cubeVertices[2]],
+          [cubeVertices[3], cubeVertices[7]],
+          [cubeVertices[5], cubeVertices[1]],
+          [cubeVertices[5], cubeVertices[4]],
+          [cubeVertices[5], cubeVertices[7]],
+          [cubeVertices[6], cubeVertices[2]],
+          [cubeVertices[6], cubeVertices[4]],
+          [cubeVertices[6], cubeVertices[7]],
+        ]
+        const tetraRadius = cloudRadius * 0.92
+        const tetraVertices = [
+          new THREE.Vector3(1, 1, 1),
+          new THREE.Vector3(-1, -1, 1),
+          new THREE.Vector3(-1, 1, -1),
+          new THREE.Vector3(1, -1, -1),
+        ].map((point) => point.normalize().multiplyScalar(tetraRadius))
+        const tetraEdges: Array<[THREE.Vector3, THREE.Vector3]> = [
+          [tetraVertices[0], tetraVertices[1]],
+          [tetraVertices[0], tetraVertices[2]],
+          [tetraVertices[0], tetraVertices[3]],
+          [tetraVertices[1], tetraVertices[2]],
+          [tetraVertices[1], tetraVertices[3]],
+          [tetraVertices[2], tetraVertices[3]],
+        ]
+
+        return [
+          makeTarget((index) => {
+            const seed = index + 1
+            const theta = seed * 2.399963
+            const phi = Math.acos(1 - (2 * (seed - 0.5)) / count)
+            const radialSeed = randomUnit(seed, 1)
+            const radius = cloudRadius * (0.18 + Math.pow(radialSeed, 1.85) * 0.82)
+            return new THREE.Vector3(
+              Math.cos(theta) * Math.sin(phi) * radius,
+              Math.sin(theta) * Math.sin(phi) * radius * (use2D ? 0.72 : 1),
+              use2D ? -0.16 + Math.sin(seed * 0.61) * 0.08 : Math.cos(phi) * radius,
+            )
+          }),
+          makeTarget((index) => {
+            const seed = index + 1
+            const theta = seed * 2.399963
+            const tube = randomUnit(seed, 6) * Math.PI * 2
+            const major = cloudRadius * 0.78
+            const minor = cloudRadius * 0.16
+            const ringRadius = major + Math.cos(tube) * minor
+            return new THREE.Vector3(
+              Math.cos(theta) * ringRadius,
+              Math.sin(theta) * ringRadius * 0.74,
+              Math.sin(tube) * minor,
+            )
+          }),
+          makeTarget((index) => {
+            const seed = index + 1
+            const side = index % 3
+            const nextSide = (side + 1) % 3
+            const along = randomUnit(seed, 7)
+            return new THREE.Vector3()
+              .lerpVectors(triangleVertices[side], triangleVertices[nextSide], along)
+              .add(
+                new THREE.Vector3(
+                  (randomUnit(seed, 8) - 0.5) * cloudRadius * 0.08,
+                  (randomUnit(seed, 9) - 0.5) * cloudRadius * 0.08,
+                  (randomUnit(seed, 10) - 0.5) * cloudRadius * 0.08,
+                ),
+              )
+          }),
+          makeTarget((index) => edgePoint(cubeEdges, index, cloudRadius * 0.06)),
+          makeTarget((index) => {
+            const seed = index + 1
+            const theta = (index / count) * Math.PI * 2
+            const denominator = 1 + Math.sin(theta) * Math.sin(theta)
+            const x = (cloudRadius * 1.04 * Math.cos(theta)) / denominator
+            const y = (cloudRadius * 0.78 * Math.sin(theta) * Math.cos(theta)) / denominator
+            return new THREE.Vector3(
+              x,
+              y,
+              Math.sin(theta * 2 + randomUnit(seed, 11)) * cloudRadius * 0.12,
+            )
+          }),
+          makeTarget((index) => {
+            const seed = index + 1
+            const progress = index / Math.max(count - 1, 1)
+            const strand = index % 2 === 0 ? 0 : Math.PI
+            const angle = progress * Math.PI * 7.5 + strand
+            const radius = cloudRadius * (0.18 + progress * 0.72)
+            return new THREE.Vector3(
+              Math.cos(angle) * radius,
+              (progress - 0.5) * cloudRadius * 1.55,
+              Math.sin(angle) * radius * 0.7 + (randomUnit(seed, 12) - 0.5) * cloudRadius * 0.06,
+            )
+          }),
+          makeTarget((index) => edgePoint(tetraEdges, index, cloudRadius * 0.055)),
+        ]
+      }
+      const shapeTargets = spiritIsIdle ? makeIdleShapeTargets() : null
 
       for (let index = 0; index < count; index += 1) {
         const seed = index + 1
         const theta = seed * 2.399963
         const phi = Math.acos(1 - (2 * (seed - 0.5)) / count)
-        const radialNoise = 0.74 + ((seed * 37) % 100) / 260
+        const radialSeed = ((seed * 37) % 100) / 99
+        const radialNoise = spiritIsIdle
+          ? 0.18 + Math.pow(radialSeed, 1.85) * 0.82
+          : 0.92 + radialSeed * 0.24
         const radius = spiritIsIdle
           ? cloudRadius * radialNoise
           : cloudRadius + Math.sin(seed * 1.77) * 0.34
@@ -1714,12 +1864,17 @@ function MathViewport({
         const y = Math.sin(theta) * Math.sin(phi) * radius * (use2D ? 0.72 : 1)
         const z = use2D ? -0.16 + Math.sin(seed * 0.61) * 0.08 : Math.cos(phi) * radius
 
-        positions[index * 3] = x
-        positions[index * 3 + 1] = y
-        positions[index * 3 + 2] = z
-        base[index * 3] = x
-        base[index * 3 + 1] = y
-        base[index * 3 + 2] = z
+        const offset = index * 3
+        const target = shapeTargets?.[0]
+        const initialX = target ? target[offset] : x
+        const initialY = target ? target[offset + 1] : y
+        const initialZ = target ? target[offset + 2] : z
+        positions[offset] = initialX
+        positions[offset + 1] = initialY
+        positions[offset + 2] = initialZ
+        base[offset] = initialX
+        base[offset + 1] = initialY
+        base[offset + 2] = initialZ
       }
 
       const geometry = new THREE.BufferGeometry()
@@ -1727,15 +1882,15 @@ function MathViewport({
       const material = new THREE.PointsMaterial({
         color: spiritIsIdle ? 0x8ff3ff : 0x6ee7ff,
         depthWrite: false,
-        opacity: spiritIsIdle ? 0.68 : 0.24,
-        size: use2D ? 0.045 / graphZoom : 0.055,
+        opacity: spiritIsIdle ? 0.82 : 0.26,
+        size: use2D ? (spiritIsIdle ? 0.056 : 0.045) / graphZoom : spiritIsIdle ? 0.064 : 0.055,
         transparent: true,
         blending: THREE.AdditiveBlending,
       })
       const points = new THREE.Points(geometry, material)
       points.position.z = use2D ? -0.04 : 0
       group.add(points)
-      spiritCloud = { base, idle: spiritIsIdle, points, positions }
+      spiritCloud = { base, idle: spiritIsIdle, points, positions, shapeTargets }
     }
 
     const render3DReferenceFrame = () => {
@@ -2424,24 +2579,129 @@ function MathViewport({
     }
 
     let animationFrame = 0
+    const startedAt = Date.now() * 0.001
+    const idleRandomUnit = (seed: number, salt: number) => {
+      const value = Math.sin(seed * 91.177 + salt * 37.719) * 13971.423
+      return value - Math.floor(value)
+    }
+    const makeIdleShapeSchedule = () => {
+      const schedule: Array<{ duration: number; morph: number; shape: number }> = []
+      const playfulShapeCount = 6
+      let lastShape = 0
+
+      for (let phrase = 0; phrase < 18; phrase += 1) {
+        const shouldRestFirst = phrase === 0 || idleRandomUnit(phrase, 1) > 0.28
+        if (shouldRestFirst) {
+          schedule.push({
+            duration: 5.5 + idleRandomUnit(phrase, 2) * 8.4,
+            morph: 0.8 + idleRandomUnit(phrase, 3) * 0.85,
+            shape: 0,
+          })
+          lastShape = 0
+        }
+
+        const flowRoll = idleRandomUnit(phrase, 4)
+        const flowLength = flowRoll > 0.76 ? 4 : flowRoll > 0.42 ? 3 : 1 + Math.floor(idleRandomUnit(phrase, 5) * 2)
+
+        for (let step = 0; step < flowLength; step += 1) {
+          const seed = phrase * 10 + step
+          let nextShape = 1 + Math.floor(idleRandomUnit(seed, 6) * playfulShapeCount)
+          if (nextShape === lastShape) {
+            nextShape = (nextShape % playfulShapeCount) + 1
+          }
+
+          schedule.push({
+            duration: 2.4 + idleRandomUnit(seed, 7) * 3.2,
+            morph: 0.75 + idleRandomUnit(seed, 8) * 0.75,
+            shape: nextShape,
+          })
+          lastShape = nextShape
+        }
+
+        if (idleRandomUnit(phrase, 9) > 0.18) {
+          schedule.push({
+            duration: 4.2 + idleRandomUnit(phrase, 10) * 9.6,
+            morph: 1 + idleRandomUnit(phrase, 11) * 0.95,
+            shape: 0,
+          })
+          lastShape = 0
+        }
+      }
+
+      return schedule
+    }
+    const idleShapeSchedule = makeIdleShapeSchedule()
+    const idleShapeCycleDuration = idleShapeSchedule.reduce((total, item) => total + item.duration, 0)
+    const getIdleShapeBlend = (elapsedSeconds: number, shapeCount: number) => {
+      if (shapeCount <= 0) {
+        return {
+          fromShapeIndex: 0,
+          morphProgress: 0,
+          toShapeIndex: 0,
+        }
+      }
+
+      let localTime = elapsedSeconds % idleShapeCycleDuration
+      let scheduleIndex = 0
+      for (; scheduleIndex < idleShapeSchedule.length; scheduleIndex += 1) {
+        const item = idleShapeSchedule[scheduleIndex]
+        if (localTime <= item.duration) {
+          break
+        }
+        localTime -= item.duration
+      }
+
+      const item = idleShapeSchedule[scheduleIndex] ?? idleShapeSchedule[0]
+      const previousItem =
+        idleShapeSchedule[(scheduleIndex - 1 + idleShapeSchedule.length) % idleShapeSchedule.length]
+      const transitionDuration = Math.min(item.morph, item.duration * 0.45)
+      const activeMorphProgress = clamp(localTime / Math.max(transitionDuration, 0.001), 0, 1)
+      const morphProgress =
+        activeMorphProgress * activeMorphProgress * (3 - 2 * activeMorphProgress)
+
+      return {
+        fromShapeIndex: previousItem.shape % shapeCount,
+        morphProgress,
+        toShapeIndex: item.shape % shapeCount,
+      }
+    }
     const animate = () => {
       animationFrame = requestAnimationFrame(animate)
-      const elapsed = Date.now() * 0.001
+      const elapsed = Date.now() * 0.001 - startedAt
       if (spiritCloud) {
         const amplitude = spiritCloud.idle ? 0.13 : 0.045
+        const shapeTargets = spiritCloud.shapeTargets
+        const shapeCount = shapeTargets?.length ?? 0
+        const { fromShapeIndex, morphProgress, toShapeIndex } = getIdleShapeBlend(elapsed, shapeCount)
+
         for (let index = 0; index < spiritCloud.positions.length / 3; index += 1) {
           const offset = index * 3
           const pulse = Math.sin(elapsed * (spiritCloud.idle ? 0.85 : 0.55) + index * 0.37)
           const drift = Math.cos(elapsed * 0.42 + index * 0.19)
-          spiritCloud.positions[offset] = spiritCloud.base[offset] + drift * amplitude * 0.38
-          spiritCloud.positions[offset + 1] = spiritCloud.base[offset + 1] + pulse * amplitude
-          spiritCloud.positions[offset + 2] = spiritCloud.base[offset + 2] + drift * amplitude * 0.24
+          const fromShape = shapeTargets?.[fromShapeIndex]
+          const toShape = shapeTargets?.[toShapeIndex]
+          const baseX =
+            fromShape && toShape
+              ? fromShape[offset] * (1 - morphProgress) + toShape[offset] * morphProgress
+              : spiritCloud.base[offset]
+          const baseY =
+            fromShape && toShape
+              ? fromShape[offset + 1] * (1 - morphProgress) + toShape[offset + 1] * morphProgress
+              : spiritCloud.base[offset + 1]
+          const baseZ =
+            fromShape && toShape
+              ? fromShape[offset + 2] * (1 - morphProgress) + toShape[offset + 2] * morphProgress
+              : spiritCloud.base[offset + 2]
+
+          spiritCloud.positions[offset] = baseX + drift * amplitude * 0.38
+          spiritCloud.positions[offset + 1] = baseY + pulse * amplitude
+          spiritCloud.positions[offset + 2] = baseZ + drift * amplitude * 0.24
         }
         const positionAttribute = spiritCloud.points.geometry.getAttribute('position')
         positionAttribute.needsUpdate = true
-        spiritCloud.points.rotation.z += spiritCloud.idle ? 0.0009 : 0.00025
+        spiritCloud.points.rotation.z += spiritCloud.idle ? 0.00115 : 0.00025
         if (!use2D) {
-          spiritCloud.points.rotation.y += spiritCloud.idle ? 0.0012 : 0.00035
+          spiritCloud.points.rotation.y += spiritCloud.idle ? 0.00135 : 0.00035
         }
       }
       if (orbitEnabled && !use2D) {
