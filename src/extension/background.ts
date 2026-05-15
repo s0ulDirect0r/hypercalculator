@@ -32,16 +32,26 @@ async function toggleOverlay(tabId: number) {
   }
 }
 
-function openSidePanel(windowId: number) {
-  chrome.sidePanel
-    .open({ windowId })
-    .catch((error) => console.error('Hypercalculator: sidePanel.open failed', error))
+function openSidePanel(tab: chrome.tabs.Tab) {
+  console.log('[Hypercalculator] opening side panel; sidePanel.open is', typeof chrome.sidePanel?.open)
+  try {
+    const opening =
+      tab.id !== undefined
+        ? chrome.sidePanel.open({ tabId: tab.id })
+        : chrome.sidePanel.open({ windowId: tab.windowId })
+    Promise.resolve(opening)
+      .then(() => console.log('[Hypercalculator] sidePanel.open resolved'))
+      .catch((error) => console.error('[Hypercalculator] sidePanel.open rejected:', error))
+  } catch (error) {
+    console.error('[Hypercalculator] sidePanel.open threw synchronously:', error)
+  }
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  console.log('[Hypercalculator] context menu clicked:', info.menuItemId, 'tab', tab?.id, 'window', tab?.windowId)
   if (!tab) return
-  if (info.menuItemId === SIDE_PANEL_MENU_ID && tab.windowId !== undefined) {
-    openSidePanel(tab.windowId)
+  if (info.menuItemId === SIDE_PANEL_MENU_ID) {
+    openSidePanel(tab)
   } else if (info.menuItemId === OVERLAY_MENU_ID && tab.id !== undefined) {
     void toggleOverlay(tab.id)
   }
