@@ -52,6 +52,13 @@
   box-shadow: none;
 }
 
+/* The side panel and overlay are narrow and short — keep the visualization
+   compact so the display and keypad sit within easy reach. */
+:root[data-context] .workspace,
+:root[data-context] .visual-panel {
+  min-height: 240px;
+}
+
 .window-bar {
   min-height: 72px;
   display: flex;

@@ -35,6 +35,13 @@
         "mac": "Alt+Shift+C"
       },
       "description": "Toggle the floating Hypercalculator overlay"
+    },
+    "open-side-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+H",
+        "mac": "Alt+Shift+H"
+      },
+      "description": "Open the Hypercalculator side panel"
     }
   },
   "web_accessible_resources": [

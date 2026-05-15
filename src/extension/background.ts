@@ -37,7 +37,24 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 })
 
+// Open the side panel. chrome.sidePanel.open() needs a user gesture, so call it
+// straight away with the gesture-carrying tab from the command event — never
+// behind an await, which would let the gesture expire first.
+function openSidePanel(tab?: chrome.tabs.Tab) {
+  if (tab?.windowId === undefined) {
+    console.error('Hypercalculator: no window to open the side panel in')
+    return
+  }
+  chrome.sidePanel
+    .open({ windowId: tab.windowId })
+    .catch((error) => console.error('Hypercalculator: cannot open side panel', error))
+}
+
 chrome.commands.onCommand.addListener((command, tab) => {
+  if (command === 'open-side-panel') {
+    openSidePanel(tab)
+    return
+  }
   if (command !== 'toggle-overlay') return
   if (tab?.id !== undefined) {
     void toggleOverlay(tab.id)
