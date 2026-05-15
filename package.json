@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && npm run build:app && npm run build:ext",
-    "build:app": "vite build",
-    "build:ext": "cross-env BUILD_TARGET=extension-scripts vite build",
+    "build": "tsc -b && vite build",
     "gen-icons": "node scripts/gen-icons.mjs",
     "lint": "eslint .",
     "test": "vitest run",
@@ -29,7 +27,6 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^6.0.1",
-    "cross-env": "^10.1.0",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

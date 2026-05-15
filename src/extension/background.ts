@@ -15,6 +15,27 @@ chrome.runtime.onInstalled.addListener(() => {
   })
 })
 
+// Flash a brief badge on the toolbar icon when the overlay cannot run on the
+// current page. Content scripts are disallowed on chrome:// pages, the Chrome
+// Web Store, view-source:, the new-tab page, and other extensions' pages — on
+// those, toggleOverlay throws and the user would otherwise see nothing happen.
+// The badge and title are per-tab so they do not leak into unrelated tabs, and
+// clear after a few seconds so the icon returns to its resting state.
+function flashUnsupportedBadge(tabId: number) {
+  void chrome.action.setBadgeText({ tabId, text: '!' })
+  void chrome.action.setBadgeBackgroundColor({ tabId, color: '#d8463f' })
+  void chrome.action.setTitle({
+    tabId,
+    title: 'Hypercalculator can’t open the overlay on this page — use the side panel instead',
+  })
+  setTimeout(() => {
+    // Empty string clears the per-tab override, falling back to the manifest
+    // default_title and no badge.
+    void chrome.action.setBadgeText({ tabId, text: '' })
+    void chrome.action.setTitle({ tabId, title: '' })
+  }, 4000)
+}
+
 // Toggle the floating overlay. The content script is declared for all pages,
 // but pages already open when the extension loaded never received it — so if
 // messaging fails, inject content.js on demand and retry.
@@ -27,6 +48,7 @@ async function toggleOverlay(tabId: number) {
       await chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_OVERLAY' })
     } catch (error) {
       console.error('Hypercalculator: cannot show overlay on this page', error)
+      flashUnsupportedBadge(tabId)
     }
   }
 }
