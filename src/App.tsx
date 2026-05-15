@@ -556,6 +556,19 @@ const getTickStep = (range: number) => {
 const formatAxisValue = (value: number) =>
   Math.abs(value) < 0.000001 ? '0' : formatValue(value)
 
+// THREE.WebGLRenderer (this version of three is WebGL2-only) throws straight
+// from its constructor when no context can be created — a blocklisted GPU,
+// hardware acceleration turned off, a locked-down or virtualized environment.
+// Probe once so the viewport can show a notice instead of letting the throw
+// unmount the whole calculator.
+function isWebGLAvailable(): boolean {
+  try {
+    return Boolean(document.createElement('canvas').getContext('webgl2'))
+  } catch {
+    return false
+  }
+}
+
 function MathViewport({
   analysisMode,
   angleMode,
@@ -581,6 +594,7 @@ function MathViewport({
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null)
   const inspectXRef = useRef(inspectX)
+  const [webglAvailable] = useState(isWebGLAvailable)
 
   useEffect(() => {
     inspectXRef.current = inspectX
@@ -588,7 +602,7 @@ function MathViewport({
 
   useEffect(() => {
     const mount = mountRef.current
-    if (!mount) {
+    if (!mount || !webglAvailable) {
       return
     }
 
@@ -619,7 +633,16 @@ function MathViewport({
     camera.lookAt(0, 0, 0)
     camera.updateProjectionMatrix()
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    } catch (error) {
+      // Defense in depth: isWebGLAvailable() already gated this effect, so this
+      // should not happen — but if context creation still fails, bail out
+      // quietly rather than letting the throw unmount the whole React tree.
+      console.error('Hypercalculator: WebGL context creation failed.', error)
+      return
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(width, height)
     renderer.domElement.style.cursor = mathAnalysis.kind === 'function2d' ? 'crosshair' : 'default'
@@ -1898,7 +1921,23 @@ function MathViewport({
     numericValue,
     onInspectXChange,
     orbitEnabled,
+    webglAvailable,
   ])
+
+  if (!webglAvailable) {
+    return (
+      <div
+        className="math-viewport math-viewport--unavailable"
+        aria-label="Mathematical object visualization"
+      >
+        <p>Visualization unavailable</p>
+        <p>
+          WebGL is disabled in this browser, so graphs and 3D objects can’t render. The
+          calculator and all its math still work.
+        </p>
+      </div>
+    )
+  }
 
   return <div className="math-viewport" ref={mountRef} aria-label="Mathematical object visualization" />
 }

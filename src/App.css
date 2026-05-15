@@ -172,6 +172,32 @@
   height: 100%;
 }
 
+.math-viewport--unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.math-viewport--unavailable p {
+  margin: 0;
+  max-width: 320px;
+  color: rgba(196, 246, 255, 0.55);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.math-viewport--unavailable p:first-child {
+  color: rgba(196, 246, 255, 0.85);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .viewport-controls {
   position: absolute;
   top: 18px;
