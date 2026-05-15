@@ -39,7 +39,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // Open the side panel. chrome.sidePanel.open() needs a user gesture, so call it
 // straight away with the gesture-carrying tab from the command event — never
-// behind an await, which would let the gesture expire first.
+// behind an await, which would let the gesture expire first. That is also why
+// there is no windows.getLastFocused() fallback like toggle-overlay has:
+// resolving a window asynchronously would expire the gesture. A keyboard
+// command from a focused window always carries a tab; if it somehow does not,
+// fail loudly rather than silently open nothing.
 function openSidePanel(tab?: chrome.tabs.Tab) {
   if (tab?.windowId === undefined) {
     console.error('Hypercalculator: no window to open the side panel in')
