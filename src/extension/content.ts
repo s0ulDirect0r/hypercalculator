@@ -54,6 +54,9 @@ function buildOverlay(): HTMLDivElement {
     color: 'rgba(196, 246, 255, 0.7)',
     fontSize: '13px',
   } satisfies Partial<CSSStyleDeclaration>)
+  // Stop the header's drag handler from capturing the pointer, which would
+  // otherwise swallow the button's click event.
+  close.addEventListener('pointerdown', (event) => event.stopPropagation())
   close.addEventListener('click', hideOverlay)
 
   header.append(title, close)
