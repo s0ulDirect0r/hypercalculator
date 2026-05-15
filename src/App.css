@@ -37,7 +37,7 @@
   min-height: auto;
 }
 
-/* Embedded contexts (Chrome extension popup / overlay / side panel):
+/* Embedded contexts (Chrome extension overlay / side panel):
    drop the page padding and flatten the floating window frame. */
 :root[data-context] .app-shell {
   min-height: 100svh;
@@ -50,10 +50,6 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
-}
-
-:root[data-context='popup'] {
-  width: 420px;
 }
 
 .window-bar {

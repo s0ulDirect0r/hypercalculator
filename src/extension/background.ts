@@ -1,14 +1,13 @@
 // MV3 service worker. Imports nothing so Rollup emits it as one standalone file.
 
-const SIDE_PANEL_MENU_ID = 'hypercalculator-open-side-panel'
 const OVERLAY_MENU_ID = 'hypercalculator-toggle-overlay'
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: SIDE_PANEL_MENU_ID,
-    title: 'Open Hypercalculator side panel',
-    contexts: ['all'],
-  })
+  // Clicking the toolbar icon opens the side panel.
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.error('Hypercalculator: setPanelBehavior failed', error))
+
   chrome.contextMenus.create({
     id: OVERLAY_MENU_ID,
     title: 'Toggle Hypercalculator overlay',
@@ -32,27 +31,8 @@ async function toggleOverlay(tabId: number) {
   }
 }
 
-function openSidePanel(tab: chrome.tabs.Tab) {
-  console.log('[Hypercalculator] opening side panel; sidePanel.open is', typeof chrome.sidePanel?.open)
-  try {
-    const opening =
-      tab.id !== undefined
-        ? chrome.sidePanel.open({ tabId: tab.id })
-        : chrome.sidePanel.open({ windowId: tab.windowId })
-    Promise.resolve(opening)
-      .then(() => console.log('[Hypercalculator] sidePanel.open resolved'))
-      .catch((error) => console.error('[Hypercalculator] sidePanel.open rejected:', error))
-  } catch (error) {
-    console.error('[Hypercalculator] sidePanel.open threw synchronously:', error)
-  }
-}
-
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  console.log('[Hypercalculator] context menu clicked:', info.menuItemId, 'tab', tab?.id, 'window', tab?.windowId)
-  if (!tab) return
-  if (info.menuItemId === SIDE_PANEL_MENU_ID) {
-    openSidePanel(tab)
-  } else if (info.menuItemId === OVERLAY_MENU_ID && tab.id !== undefined) {
+  if (info.menuItemId === OVERLAY_MENU_ID && tab?.id !== undefined) {
     void toggleOverlay(tab.id)
   }
 })
