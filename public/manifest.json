@@ -17,7 +17,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "sidepanel.html"
+    "default_path": "index.html"
   },
   "permissions": ["sidePanel", "contextMenus", "scripting"],
   "host_permissions": ["<all_urls>"],
