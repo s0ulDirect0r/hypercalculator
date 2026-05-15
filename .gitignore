@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Packaged extension archives (npm run package)
+hypercalculator-v*.zip
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

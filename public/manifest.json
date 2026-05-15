@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Hypercalculator",
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "minimum_chrome_version": "114",
   "description": "A visual calculator for math: graphs, geometry, vectors, complex numbers, and 3D — on any page.",
   "icons": {
     "16": "icons/icon16.png",
@@ -19,16 +20,7 @@
   "side_panel": {
     "default_path": "index.html?context=sidepanel"
   },
-  "permissions": ["sidePanel", "contextMenus", "scripting"],
-  "host_permissions": ["<all_urls>"],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
-  ],
+  "permissions": ["sidePanel", "contextMenus", "scripting", "activeTab"],
   "commands": {
     "toggle-overlay": {
       "suggested_key": {

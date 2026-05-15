@@ -36,9 +36,13 @@ function flashUnsupportedBadge(tabId: number) {
   }, 4000)
 }
 
-// Toggle the floating overlay. The content script is declared for all pages,
-// but pages already open when the extension loaded never received it — so if
-// messaging fails, inject content.js on demand and retry.
+// Toggle the floating overlay. The extension uses activeTab rather than a broad
+// host permission, so there is no declarative content script: the first toggle
+// on a page always fails the sendMessage and falls through to inject content.js
+// on demand. Both overlay entry points — the toggle-overlay command and the
+// context-menu click — count as invocations that grant activeTab, so the
+// executeScript is allowed. Every toggle after that reaches the now-present
+// content script directly via sendMessage.
 async function toggleOverlay(tabId: number) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_OVERLAY' })

@@ -131,9 +131,10 @@ function toggleOverlay() {
   container.style.display = container.style.display === 'none' ? 'flex' : 'none'
 }
 
-// The service worker re-injects this script on demand for tabs that predate
-// the extension. Guard the listener so a script injected twice does not
-// register two listeners and toggle the overlay twice per command.
+// The service worker injects this script on demand — with activeTab there is no
+// declarative content script, so every appearance of the overlay starts here.
+// Guard the listener so a script injected more than once never registers
+// duplicate listeners and toggles the overlay twice per command.
 const overlayWindow = window as typeof window & { hypercalculatorOverlayBound?: boolean }
 if (!overlayWindow.hypercalculatorOverlayBound) {
   overlayWindow.hypercalculatorOverlayBound = true
