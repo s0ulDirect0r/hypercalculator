@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "Hypercalculator",
+  "version": "0.0.0",
+  "description": "A visual calculator for math: graphs, geometry, vectors, complex numbers, and 3D — on any page.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Hypercalculator — click to open side panel"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "index.html?context=sidepanel"
+  },
+  "permissions": ["sidePanel", "contextMenus", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "commands": {
+    "toggle-overlay": {
+      "suggested_key": {
+        "default": "Alt+Shift+C",
+        "mac": "Alt+Shift+C"
+      },
+      "description": "Toggle the floating Hypercalculator overlay"
+    },
+    "open-side-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+H",
+        "mac": "Alt+Shift+H"
+      },
+      "description": "Open the Hypercalculator side panel"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["index.html", "assets/*", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

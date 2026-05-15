@@ -37,6 +37,28 @@
   min-height: auto;
 }
 
+/* Embedded contexts (Chrome extension overlay / side panel):
+   drop the page padding and flatten the floating window frame. */
+:root[data-context] .app-shell {
+  min-height: 100svh;
+  padding: 0;
+}
+
+:root[data-context] .hyper-window {
+  width: 100%;
+  min-height: 100svh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The side panel and overlay are narrow and short — keep the visualization
+   compact so the display and keypad sit within easy reach. */
+:root[data-context] .workspace,
+:root[data-context] .visual-panel {
+  min-height: 240px;
+}
+
 .window-bar {
   min-height: 72px;
   display: flex;
