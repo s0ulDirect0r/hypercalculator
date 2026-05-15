@@ -93,18 +93,28 @@ function enableDrag(root: HTMLDivElement, handle: HTMLElement, frame: HTMLIFrame
     handle.setPointerCapture(event.pointerId)
 
     const onMove = (move: PointerEvent) => {
-      root.style.left = `${originLeft + move.clientX - startX}px`
-      root.style.top = `${originTop + move.clientY - startY}px`
+      // Clamp so a sliver of the overlay always stays on screen — a drag past
+      // an edge would otherwise strand the header (and its close button).
+      const margin = 48
+      const left = originLeft + move.clientX - startX
+      const top = originTop + move.clientY - startY
+      root.style.left = `${Math.min(Math.max(left, margin - rect.width), window.innerWidth - margin)}px`
+      root.style.top = `${Math.min(Math.max(top, 0), window.innerHeight - margin)}px`
       root.style.right = 'auto'
     }
-    const onUp = (up: PointerEvent) => {
+    // pointerup ends a normal release; pointercancel fires when the browser
+    // takes the pointer away (touch interruption, OS gesture). Both must run
+    // the same teardown, or the iframe stays click-blocked and listeners leak.
+    const endDrag = (end: PointerEvent) => {
       frame.style.pointerEvents = ''
-      handle.releasePointerCapture(up.pointerId)
+      if (handle.hasPointerCapture(end.pointerId)) handle.releasePointerCapture(end.pointerId)
       handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointerup', endDrag)
+      handle.removeEventListener('pointercancel', endDrag)
     }
     handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointerup', endDrag)
+    handle.addEventListener('pointercancel', endDrag)
   })
 }
 
@@ -121,6 +131,13 @@ function toggleOverlay() {
   container.style.display = container.style.display === 'none' ? 'flex' : 'none'
 }
 
-chrome.runtime.onMessage.addListener((message: { type?: string }) => {
-  if (message?.type === 'TOGGLE_OVERLAY') toggleOverlay()
-})
+// The service worker re-injects this script on demand for tabs that predate
+// the extension. Guard the listener so a script injected twice does not
+// register two listeners and toggle the overlay twice per command.
+const overlayWindow = window as typeof window & { hypercalculatorOverlayBound?: boolean }
+if (!overlayWindow.hypercalculatorOverlayBound) {
+  overlayWindow.hypercalculatorOverlayBound = true
+  chrome.runtime.onMessage.addListener((message: { type?: string }) => {
+    if (message?.type === 'TOGGLE_OVERLAY') toggleOverlay()
+  })
+}

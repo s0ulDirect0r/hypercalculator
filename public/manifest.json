@@ -17,7 +17,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "index.html"
+    "default_path": "index.html?context=sidepanel"
   },
   "permissions": ["sidePanel", "contextMenus", "scripting"],
   "host_permissions": ["<all_urls>"],
@@ -25,7 +25,8 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "commands": {

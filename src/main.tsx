@@ -4,12 +4,11 @@ import './index.css'
 import App from './App.tsx'
 
 // When embedded as a Chrome extension surface (overlay iframe or side panel),
-// flatten the standalone window frame so the app fills its container. The
-// overlay passes ?context=overlay; the side panel loads this page directly,
-// so any top-level chrome-extension:// page without a context is the panel.
-const embedContext =
-  new URLSearchParams(window.location.search).get('context') ??
-  (window.location.protocol === 'chrome-extension:' ? 'sidepanel' : null)
+// flatten the standalone window frame so the app fills its container. Both
+// surfaces pass an explicit ?context= — the overlay iframe and the side panel
+// (via its manifest default_path). A bare extension-origin page has no context
+// and renders as the standalone app.
+const embedContext = new URLSearchParams(window.location.search).get('context')
 if (embedContext) document.documentElement.dataset.context = embedContext
 
 createRoot(document.getElementById('root')!).render(
