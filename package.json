@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "package": "node scripts/package.mjs",
     "gen-icons": "node scripts/gen-icons.mjs",
+    "gen-store-assets": "node scripts/gen-store-assets.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "preview": "vite preview"

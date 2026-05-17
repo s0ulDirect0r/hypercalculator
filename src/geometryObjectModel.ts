@@ -20,6 +20,18 @@ export type Geometry2DObject =
       radius: number
     }
   | {
+      kind: 'hyperbola'
+      a: number
+      asymptoteSlopes: [number, number]
+      b: number
+      c: number
+      center: Point2D
+      eccentricity: number
+      foci: [Point2D, Point2D]
+      transverseAxis: 'x' | 'y'
+      vertices: [Point2D, Point2D]
+    }
+  | {
       kind: 'point'
       point: Point2D
     }
@@ -282,6 +294,61 @@ export const parseGeometry2DObject = (
       circumference: Math.PI * radius * 2,
       kind: 'circle',
       radius,
+    }
+  }
+
+  if (name === 'hyperbola') {
+    const positionalCenter = positional[0] ? parsePoint2D(positional[0], evaluateNumeric) : null
+    const center =
+      readPoint2DArgument(named, positional, ['center', 'c'], 0, evaluateNumeric) ??
+      positionalCenter ??
+      { x: 0, y: 0 }
+    const firstNumericPosition = positionalCenter ? 1 : 0
+    const a = readNumericArgument(named, positional, ['a', 'semimajor', 'semi_transverse'], firstNumericPosition, evaluateNumeric)
+    const b = readNumericArgument(named, positional, ['b', 'semiminor', 'semi_conjugate'], firstNumericPosition + 1, evaluateNumeric)
+    const axisSource = (getNamedArgument(named, ['axis', 'transverse', 'orientation']) ?? positional[firstNumericPosition + 2] ?? 'x')
+      .trim()
+      .toLowerCase()
+    const transverseAxis = axisSource.startsWith('y') || axisSource.includes('vertical') ? 'y' : 'x'
+
+    if (a === null || b === null || a <= 0 || b <= 0) {
+      return null
+    }
+
+    const c = Math.hypot(a, b)
+    const vertices: [Point2D, Point2D] =
+      transverseAxis === 'x'
+        ? [
+            { x: center.x - a, y: center.y },
+            { x: center.x + a, y: center.y },
+          ]
+        : [
+            { x: center.x, y: center.y - a },
+            { x: center.x, y: center.y + a },
+          ]
+    const foci: [Point2D, Point2D] =
+      transverseAxis === 'x'
+        ? [
+            { x: center.x - c, y: center.y },
+            { x: center.x + c, y: center.y },
+          ]
+        : [
+            { x: center.x, y: center.y - c },
+            { x: center.x, y: center.y + c },
+          ]
+    const slopeMagnitude = transverseAxis === 'x' ? b / a : a / b
+
+    return {
+      a,
+      asymptoteSlopes: [-slopeMagnitude, slopeMagnitude],
+      b,
+      c,
+      center,
+      eccentricity: c / a,
+      foci,
+      kind: 'hyperbola',
+      transverseAxis,
+      vertices,
     }
   }
 

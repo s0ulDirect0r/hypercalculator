@@ -22,7 +22,45 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import * as THREE from 'three'
+import {
+  AdditiveBlending,
+  AmbientLight,
+  AxesHelper,
+  BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
+  CircleGeometry,
+  ConeGeometry,
+  CylinderGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
+  GridHelper,
+  Group,
+  Line,
+  LineBasicMaterial,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  OrthographicCamera,
+  PerspectiveCamera,
+  PlaneGeometry,
+  PointLight,
+  Points,
+  PointsMaterial,
+  Quaternion,
+  SRGBColorSpace,
+  Scene,
+  Shape,
+  ShapeGeometry,
+  SphereGeometry,
+  Sprite,
+  SpriteMaterial,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+  type Material,
+} from 'three'
 import { type Point2D, type Point3D } from './geometryObjectModel'
 import {
   type AnalysisMode,
@@ -55,6 +93,7 @@ type GeometryComposerKind =
   | 'cone'
   | 'cube'
   | 'cylinder'
+  | 'hyperbola'
   | 'line3d'
   | 'plane'
   | 'point'
@@ -129,6 +168,17 @@ const geometryComposerConfig: Record<
     ],
     label: 'cylinder',
   },
+  hyperbola: {
+    dimension: '2d',
+    fields: [
+      { key: 'cx', label: 'cx' },
+      { key: 'cy', label: 'cy' },
+      { key: 'a', label: 'a' },
+      { key: 'b', label: 'b' },
+      { key: 'axis', label: 'axis' },
+    ],
+    label: 'hyperbola',
+  },
   line3d: {
     dimension: '3d',
     fields: [
@@ -198,6 +248,7 @@ const geometryComposerDefaults: Record<GeometryComposerKind, Record<string, stri
   cone: { cx: '0', cy: '0', cz: '0', h: '5', r: '2' },
   cube: { cx: '0', cy: '0', cz: '0', side: '4' },
   cylinder: { cx: '0', cy: '0', cz: '0', h: '5', r: '2' },
+  hyperbola: { a: '4', axis: 'x', b: '3', cx: '0', cy: '0' },
   line3d: { ax: '0', ay: '0', az: '0', bx: '2', by: '3', bz: '1' },
   plane: { d: '0', nx: '0', ny: '1', nz: '0' },
   point: { x: '2', y: '3' },
@@ -222,6 +273,8 @@ const buildGeometryExpression = (kind: GeometryComposerKind, fields: Record<stri
       return `segment(a=(${field('ax')},${field('ay')}), b=(${field('bx')},${field('by')}))`
     case 'circle':
       return `circle(center=(${field('cx')},${field('cy')}), r=${field('r', '1')})`
+    case 'hyperbola':
+      return `hyperbola(center=(${field('cx')},${field('cy')}), a=${field('a', '1')}, b=${field('b', '1')}, axis=${field('axis', 'x')})`
     case 'triangle':
       return `triangle(a=(${field('ax')},${field('ay')}), b=(${field('bx')},${field('by')}), c=(${field('cx')},${field('cy')}))`
     case 'line3d':
@@ -254,6 +307,14 @@ const randomGeometryFields = (kind: GeometryComposerKind): Record<string, string
       return { ax: randomInteger(-5, 1), ay: randomInteger(-4, 4), bx: randomInteger(2, 7), by: randomInteger(-4, 4) }
     case 'circle':
       return { cx: randomInteger(-4, 4), cy: randomInteger(-4, 4), r: randomPositive(1, 6) }
+    case 'hyperbola':
+      return {
+        a: randomPositive(2, 6),
+        axis: Math.random() > 0.5 ? 'x' : 'y',
+        b: randomPositive(1, 5),
+        cx: randomInteger(-3, 3),
+        cy: randomInteger(-3, 3),
+      }
     case 'triangle': {
       const ax = Number(randomInteger(-5, -1))
       const ay = Number(randomInteger(-3, 3))
@@ -397,6 +458,14 @@ const getSpiritPrompt = (
       }
     }
 
+    if (geometry.kind === 'hyperbola') {
+      return {
+        label: 'hyperbola thought',
+        message: 'The branches chase their asymptotes but never quite settle onto them.',
+        mood: 'curious',
+      }
+    }
+
     if (geometry.kind === 'segment') {
       return {
         label: 'measuring',
@@ -535,7 +604,7 @@ const MAX_GRAPH_EXTENT = 50
 const ORTHOGRAPHIC_HALF_HEIGHT = 5.4
 
 const toGraphPoint = (x: number, y: number, minY = -8, maxY = 8) =>
-  new THREE.Vector3(x * GRAPH_SCALE, clamp(y, minY, maxY) * GRAPH_SCALE, 0)
+  new Vector3(x * GRAPH_SCALE, clamp(y, minY, maxY) * GRAPH_SCALE, 0)
 
 const getTickStep = (range: number) => {
   if (range <= 12) {
@@ -556,7 +625,7 @@ const getTickStep = (range: number) => {
 const formatAxisValue = (value: number) =>
   Math.abs(value) < 0.000001 ? '0' : formatValue(value)
 
-// THREE.WebGLRenderer (this version of three is WebGL2-only) throws straight
+// WebGLRenderer (this version of three is WebGL2-only) throws straight
 // from its constructor when no context can be created — a blocklisted GPU,
 // hardware acceleration turned off, a locked-down or virtualized environment.
 // Probe once so the viewport can show a notice instead of letting the throw
@@ -606,7 +675,7 @@ function MathViewport({
       return
     }
 
-    const scene = new THREE.Scene()
+    const scene = new Scene()
     const use2D =
       mathAnalysis.kind === 'function2d' ||
       mathAnalysis.kind === 'geometry2d' ||
@@ -616,7 +685,7 @@ function MathViewport({
     const height = Math.max(mount.clientHeight, 1)
     const aspect = width / height
     const camera = use2D
-      ? new THREE.OrthographicCamera(
+      ? new OrthographicCamera(
           -ORTHOGRAPHIC_HALF_HEIGHT * aspect,
           ORTHOGRAPHIC_HALF_HEIGHT * aspect,
           ORTHOGRAPHIC_HALF_HEIGHT,
@@ -624,8 +693,8 @@ function MathViewport({
           0.1,
           100,
         )
-      : new THREE.PerspectiveCamera(45, aspect, 0.1, 100)
-    if (camera instanceof THREE.OrthographicCamera) {
+      : new PerspectiveCamera(45, aspect, 0.1, 100)
+    if (camera instanceof OrthographicCamera) {
       camera.zoom = graphZoom
     }
 
@@ -633,9 +702,9 @@ function MathViewport({
     camera.lookAt(0, 0, 0)
     camera.updateProjectionMatrix()
 
-    let renderer: THREE.WebGLRenderer
+    let renderer: WebGLRenderer
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+      renderer = new WebGLRenderer({ antialias: true, alpha: true })
     } catch (error) {
       // Defense in depth: isWebGLAvailable() already gated this effect, so this
       // should not happen — but if context creation still fails, bail out
@@ -648,14 +717,14 @@ function MathViewport({
     renderer.domElement.style.cursor = mathAnalysis.kind === 'function2d' ? 'crosshair' : 'default'
     mount.appendChild(renderer.domElement)
 
-    const group = new THREE.Group()
+    const group = new Group()
     scene.add(group)
 
-    scene.add(new THREE.AmbientLight(0xffffff, 1.7))
-    const keyLight = new THREE.PointLight(0xffa238, 18, 30)
+    scene.add(new AmbientLight(0xffffff, 1.7))
+    const keyLight = new PointLight(0xffa238, 18, 30)
     keyLight.position.set(3, 5, 5)
     scene.add(keyLight)
-    const rimLight = new THREE.PointLight(0x69d2ff, 14, 28)
+    const rimLight = new PointLight(0x69d2ff, 14, 28)
     rimLight.position.set(-4, -2, 3)
     scene.add(rimLight)
     const spiritIsIdle =
@@ -665,20 +734,20 @@ function MathViewport({
       | {
           base: Float32Array
           idle: boolean
-          points: THREE.Points
+          points: Points
           positions: Float32Array
           shapeTargets: Float32Array[] | null
         }
       | null = null
 
-    const line = (points: THREE.Vector3[], color: number, opacity = 1) => {
-      const geometry = new THREE.BufferGeometry().setFromPoints(points)
-      const material = new THREE.LineBasicMaterial({
+    const line = (points: Vector3[], color: number, opacity = 1) => {
+      const geometry = new BufferGeometry().setFromPoints(points)
+      const material = new LineBasicMaterial({
         color,
         transparent: opacity < 1,
         opacity,
       })
-      const mesh = new THREE.Line(geometry, material)
+      const mesh = new Line(geometry, material)
       group.add(mesh)
       return mesh
     }
@@ -687,17 +756,17 @@ function MathViewport({
       width: number,
       height: number,
       depth: number,
-      material: THREE.Material,
-      position: THREE.Vector3,
+      material: Material,
+      position: Vector3,
     ) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material)
+      const mesh = new Mesh(new BoxGeometry(width, height, depth), material)
       mesh.position.copy(position)
       group.add(mesh)
       return mesh
     }
 
     const getVisibleMathBounds = () => {
-      if (!(camera instanceof THREE.OrthographicCamera)) {
+      if (!(camera instanceof OrthographicCamera)) {
         return {
           maxX: 10,
           maxY: 8,
@@ -734,10 +803,10 @@ function MathViewport({
       context.fillStyle = color
       context.fillText(text, canvas.width / 2, canvas.height / 2)
 
-      const texture = new THREE.CanvasTexture(canvas)
-      texture.colorSpace = THREE.SRGBColorSpace
-      const sprite = new THREE.Sprite(
-        new THREE.SpriteMaterial({
+      const texture = new CanvasTexture(canvas)
+      texture.colorSpace = SRGBColorSpace
+      const sprite = new Sprite(
+        new SpriteMaterial({
           map: texture,
           transparent: true,
           depthTest: false,
@@ -762,17 +831,17 @@ function MathViewport({
       const labelOffset = 0.58 / graphZoom
       const gridColor = 0x14242b
       const majorGridColor = 0x284956
-      const axisMaterial = new THREE.MeshBasicMaterial({
+      const axisMaterial = new MeshBasicMaterial({
         color: 0xd7e6eb,
         transparent: true,
         opacity: 0.88,
       })
-      const tickMaterial = new THREE.MeshBasicMaterial({
+      const tickMaterial = new MeshBasicMaterial({
         color: 0xd7e6eb,
         transparent: true,
         opacity: 0.58,
       })
-      const originMaterial = new THREE.MeshBasicMaterial({
+      const originMaterial = new MeshBasicMaterial({
         color: 0xfff2c9,
         transparent: true,
         opacity: 0.94,
@@ -785,8 +854,8 @@ function MathViewport({
         const opacity = isMajor ? 0.72 : 0.52
         line(
           [
-            new THREE.Vector3(x, bounds.minY * GRAPH_SCALE, -0.02),
-            new THREE.Vector3(x, bounds.maxY * GRAPH_SCALE, -0.02),
+            new Vector3(x, bounds.minY * GRAPH_SCALE, -0.02),
+            new Vector3(x, bounds.maxY * GRAPH_SCALE, -0.02),
           ],
           color,
           opacity,
@@ -794,7 +863,7 @@ function MathViewport({
 
         if (Math.abs(tick) > 0.000001) {
           const tickLength = isMajor ? 0.16 : 0.1
-          meshBox(0.018 / graphZoom, tickLength / graphZoom, 0.02, tickMaterial, new THREE.Vector3(x, axisY * GRAPH_SCALE, 0.02))
+          meshBox(0.018 / graphZoom, tickLength / graphZoom, 0.02, tickMaterial, new Vector3(x, axisY * GRAPH_SCALE, 0.02))
         }
 
         if (axisValuesVisible && Math.abs(tick) > 0.000001) {
@@ -812,8 +881,8 @@ function MathViewport({
         const opacity = isMajor ? 0.72 : 0.52
         line(
           [
-            new THREE.Vector3(bounds.minX * GRAPH_SCALE, y, -0.02),
-            new THREE.Vector3(bounds.maxX * GRAPH_SCALE, y, -0.02),
+            new Vector3(bounds.minX * GRAPH_SCALE, y, -0.02),
+            new Vector3(bounds.maxX * GRAPH_SCALE, y, -0.02),
           ],
           color,
           opacity,
@@ -821,7 +890,7 @@ function MathViewport({
 
         if (Math.abs(tick) > 0.000001) {
           const tickLength = isMajor ? 0.16 : 0.1
-          meshBox(tickLength / graphZoom, 0.018 / graphZoom, 0.02, tickMaterial, new THREE.Vector3(axisX * GRAPH_SCALE, y, 0.02))
+          meshBox(tickLength / graphZoom, 0.018 / graphZoom, 0.02, tickMaterial, new Vector3(axisX * GRAPH_SCALE, y, 0.02))
         }
 
         if (axisValuesVisible && Math.abs(tick) > 0.000001) {
@@ -832,10 +901,10 @@ function MathViewport({
         }
       }
 
-      meshBox(xRange * GRAPH_SCALE, 0.032 / graphZoom, 0.03, axisMaterial, new THREE.Vector3(0, axisY * GRAPH_SCALE, 0.025))
-      meshBox(0.032 / graphZoom, yRange * GRAPH_SCALE, 0.03, axisMaterial, new THREE.Vector3(axisX * GRAPH_SCALE, 0, 0.025))
+      meshBox(xRange * GRAPH_SCALE, 0.032 / graphZoom, 0.03, axisMaterial, new Vector3(0, axisY * GRAPH_SCALE, 0.025))
+      meshBox(0.032 / graphZoom, yRange * GRAPH_SCALE, 0.03, axisMaterial, new Vector3(axisX * GRAPH_SCALE, 0, 0.025))
 
-      const origin = new THREE.Mesh(new THREE.CircleGeometry(0.08, 28), originMaterial)
+      const origin = new Mesh(new CircleGeometry(0.08, 28), originMaterial)
       origin.position.set(0, 0, 0.06)
       group.add(origin)
 
@@ -862,7 +931,7 @@ function MathViewport({
         target[offset + 1] = y
         target[offset + 2] = z
       }
-      const makeTarget = (getPoint: (index: number) => THREE.Vector3) => {
+      const makeTarget = (getPoint: (index: number) => Vector3) => {
         const target = new Float32Array(count * 3)
         for (let index = 0; index < count; index += 1) {
           const point = getPoint(index)
@@ -871,15 +940,15 @@ function MathViewport({
         return target
       }
       const edgePoint = (
-        edges: Array<[THREE.Vector3, THREE.Vector3]>,
+        edges: Array<[Vector3, Vector3]>,
         index: number,
         jitter = 0.035,
       ) => {
         const seed = index + 1
         const edge = edges[index % edges.length]
         const along = randomUnit(seed, 2)
-        return new THREE.Vector3().lerpVectors(edge[0], edge[1], along).add(
-          new THREE.Vector3(
+        return new Vector3().lerpVectors(edge[0], edge[1], along).add(
+          new Vector3(
             (randomUnit(seed, 3) - 0.5) * jitter,
             (randomUnit(seed, 4) - 0.5) * jitter,
             (randomUnit(seed, 5) - 0.5) * jitter,
@@ -890,15 +959,15 @@ function MathViewport({
         const triangleRadius = cloudRadius * 0.96
         const triangleVertices = [0, 1, 2].map((corner) => {
           const angle = -Math.PI / 2 + (corner * Math.PI * 2) / 3
-          return new THREE.Vector3(Math.cos(angle) * triangleRadius, Math.sin(angle) * triangleRadius, 0)
+          return new Vector3(Math.cos(angle) * triangleRadius, Math.sin(angle) * triangleRadius, 0)
         })
         const cubeRadius = cloudRadius * 0.68
         const cubeVertices = [-1, 1].flatMap((x) =>
           [-1, 1].flatMap((y) =>
-            [-1, 1].map((z) => new THREE.Vector3(x * cubeRadius, y * cubeRadius, z * cubeRadius)),
+            [-1, 1].map((z) => new Vector3(x * cubeRadius, y * cubeRadius, z * cubeRadius)),
           ),
         )
-        const cubeEdges: Array<[THREE.Vector3, THREE.Vector3]> = [
+        const cubeEdges: Array<[Vector3, Vector3]> = [
           [cubeVertices[0], cubeVertices[1]],
           [cubeVertices[0], cubeVertices[2]],
           [cubeVertices[0], cubeVertices[4]],
@@ -914,12 +983,12 @@ function MathViewport({
         ]
         const tetraRadius = cloudRadius * 0.92
         const tetraVertices = [
-          new THREE.Vector3(1, 1, 1),
-          new THREE.Vector3(-1, -1, 1),
-          new THREE.Vector3(-1, 1, -1),
-          new THREE.Vector3(1, -1, -1),
+          new Vector3(1, 1, 1),
+          new Vector3(-1, -1, 1),
+          new Vector3(-1, 1, -1),
+          new Vector3(1, -1, -1),
         ].map((point) => point.normalize().multiplyScalar(tetraRadius))
-        const tetraEdges: Array<[THREE.Vector3, THREE.Vector3]> = [
+        const tetraEdges: Array<[Vector3, Vector3]> = [
           [tetraVertices[0], tetraVertices[1]],
           [tetraVertices[0], tetraVertices[2]],
           [tetraVertices[0], tetraVertices[3]],
@@ -935,7 +1004,7 @@ function MathViewport({
             const phi = Math.acos(1 - (2 * (seed - 0.5)) / count)
             const radialSeed = randomUnit(seed, 1)
             const radius = cloudRadius * (0.18 + Math.pow(radialSeed, 1.85) * 0.82)
-            return new THREE.Vector3(
+            return new Vector3(
               Math.cos(theta) * Math.sin(phi) * radius,
               Math.sin(theta) * Math.sin(phi) * radius * (use2D ? 0.72 : 1),
               use2D ? -0.16 + Math.sin(seed * 0.61) * 0.08 : Math.cos(phi) * radius,
@@ -948,7 +1017,7 @@ function MathViewport({
             const major = cloudRadius * 0.78
             const minor = cloudRadius * 0.16
             const ringRadius = major + Math.cos(tube) * minor
-            return new THREE.Vector3(
+            return new Vector3(
               Math.cos(theta) * ringRadius,
               Math.sin(theta) * ringRadius * 0.74,
               Math.sin(tube) * minor,
@@ -959,10 +1028,10 @@ function MathViewport({
             const side = index % 3
             const nextSide = (side + 1) % 3
             const along = randomUnit(seed, 7)
-            return new THREE.Vector3()
+            return new Vector3()
               .lerpVectors(triangleVertices[side], triangleVertices[nextSide], along)
               .add(
-                new THREE.Vector3(
+                new Vector3(
                   (randomUnit(seed, 8) - 0.5) * cloudRadius * 0.08,
                   (randomUnit(seed, 9) - 0.5) * cloudRadius * 0.08,
                   (randomUnit(seed, 10) - 0.5) * cloudRadius * 0.08,
@@ -976,7 +1045,7 @@ function MathViewport({
             const denominator = 1 + Math.sin(theta) * Math.sin(theta)
             const x = (cloudRadius * 1.04 * Math.cos(theta)) / denominator
             const y = (cloudRadius * 0.78 * Math.sin(theta) * Math.cos(theta)) / denominator
-            return new THREE.Vector3(
+            return new Vector3(
               x,
               y,
               Math.sin(theta * 2 + randomUnit(seed, 11)) * cloudRadius * 0.12,
@@ -988,7 +1057,7 @@ function MathViewport({
             const strand = index % 2 === 0 ? 0 : Math.PI
             const angle = progress * Math.PI * 7.5 + strand
             const radius = cloudRadius * (0.18 + progress * 0.72)
-            return new THREE.Vector3(
+            return new Vector3(
               Math.cos(angle) * radius,
               (progress - 0.5) * cloudRadius * 1.55,
               Math.sin(angle) * radius * 0.7 + (randomUnit(seed, 12) - 0.5) * cloudRadius * 0.06,
@@ -1027,39 +1096,39 @@ function MathViewport({
         base[offset + 2] = initialZ
       }
 
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      const material = new THREE.PointsMaterial({
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(positions, 3))
+      const material = new PointsMaterial({
         color: spiritIsIdle ? 0x8ff3ff : 0x6ee7ff,
         depthWrite: false,
         opacity: spiritIsIdle ? 0.82 : 0.26,
         size: use2D ? (spiritIsIdle ? 0.056 : 0.045) / graphZoom : spiritIsIdle ? 0.064 : 0.055,
         transparent: true,
-        blending: THREE.AdditiveBlending,
+        blending: AdditiveBlending,
       })
-      const points = new THREE.Points(geometry, material)
+      const points = new Points(geometry, material)
       points.position.z = use2D ? -0.04 : 0
       group.add(points)
       spiritCloud = { base, idle: spiritIsIdle, points, positions, shapeTargets }
     }
 
     const render3DReferenceFrame = () => {
-      const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
+      const grid = new GridHelper(12, 24, 0x315866, 0x14242b)
       grid.position.y = -2.2
       group.add(grid)
 
-      const axes = new THREE.AxesHelper(3.4)
+      const axes = new AxesHelper(3.4)
       axes.position.y = -2.2
       group.add(axes)
 
       if (axisValuesVisible) {
-        const axisLabels: Array<[string, string, THREE.Vector3]> = [
-          ['x=3', '#ffb1a8', new THREE.Vector3(3.55, -2.2, 0)],
-          ['x=-3', '#ffb1a8', new THREE.Vector3(-3.55, -2.2, 0)],
-          ['y=3', '#b4ffc9', new THREE.Vector3(0, 1.15, 0)],
-          ['z=3', '#8fc8ff', new THREE.Vector3(0, -2.2, 3.55)],
-          ['z=-3', '#8fc8ff', new THREE.Vector3(0, -2.2, -3.55)],
-          ['0', '#fff2c9', new THREE.Vector3(0, -2.2, 0)],
+        const axisLabels: Array<[string, string, Vector3]> = [
+          ['x=3', '#ffb1a8', new Vector3(3.55, -2.2, 0)],
+          ['x=-3', '#ffb1a8', new Vector3(-3.55, -2.2, 0)],
+          ['y=3', '#b4ffc9', new Vector3(0, 1.15, 0)],
+          ['z=3', '#8fc8ff', new Vector3(0, -2.2, 3.55)],
+          ['z=-3', '#8fc8ff', new Vector3(0, -2.2, -3.55)],
+          ['0', '#fff2c9', new Vector3(0, -2.2, 0)],
         ]
 
         axisLabels.forEach(([label, color, position]) => {
@@ -1082,8 +1151,8 @@ function MathViewport({
       const activeExpression = mathAnalysis.activeExpression.trim() || sourceExpression
       const hasTransform = activeExpression !== sourceExpression
       const buildCurveSegments = (curveExpression: string) => {
-        const segments: THREE.Vector3[][] = []
-        let currentSegment: THREE.Vector3[] = []
+        const segments: Vector3[][] = []
+        let currentSegment: Vector3[] = []
         const finishSegment = () => {
           if (currentSegment.length > 1) {
             segments.push(currentSegment)
@@ -1123,24 +1192,24 @@ function MathViewport({
             (bounds.maxX - bounds.minX) * GRAPH_SCALE,
             0.07 / graphZoom,
             0.035,
-            new THREE.MeshBasicMaterial({
+            new MeshBasicMaterial({
               color: 0x6ee7ff,
               transparent: true,
               opacity: 0.78,
             }),
-            new THREE.Vector3(((bounds.minX + bounds.maxX) / 2) * GRAPH_SCALE, activePoints[0].y, 0.045),
+            new Vector3(((bounds.minX + bounds.maxX) / 2) * GRAPH_SCALE, activePoints[0].y, 0.045),
           )
         }
         activeSegments.forEach((segment) => line(segment, 0x6ee7ff, 1))
       }
 
-      const inspectLineGeometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, 0.01),
-        new THREE.Vector3(0, 0, 0.01),
+      const inspectLineGeometry = new BufferGeometry().setFromPoints([
+        new Vector3(0, 0, 0.01),
+        new Vector3(0, 0, 0.01),
       ])
-      const inspectLine = new THREE.Line(
+      const inspectLine = new Line(
         inspectLineGeometry,
-        new THREE.LineBasicMaterial({
+        new LineBasicMaterial({
           color: 0xfff2c9,
           opacity: 0.28,
           transparent: true,
@@ -1148,9 +1217,9 @@ function MathViewport({
       )
       group.add(inspectLine)
 
-      const inspectMarker = new THREE.Mesh(
-        new THREE.CircleGeometry(0.13, 32),
-        new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
+      const inspectMarker = new Mesh(
+        new CircleGeometry(0.13, 32),
+        new MeshBasicMaterial({ color: 0xfff2c9 }),
       )
       inspectMarker.position.z = 0.07
       group.add(inspectMarker)
@@ -1187,7 +1256,7 @@ function MathViewport({
       updateInspectIndicator()
 
       if (analysisMode === 'integral') {
-        const areaPoints: THREE.Vector3[] = [toGraphPoint(-2, 0, bounds.minY, bounds.maxY)]
+        const areaPoints: Vector3[] = [toGraphPoint(-2, 0, bounds.minY, bounds.maxY)]
         for (let index = 0; index <= 120; index += 1) {
           const x = -2 + (4 * index) / 120
           const y = evaluateForPoint(sourceExpression, angleMode, x)
@@ -1195,14 +1264,14 @@ function MathViewport({
         }
         areaPoints.push(toGraphPoint(2, 0, bounds.minY, bounds.maxY))
 
-        const shape = new THREE.Shape(areaPoints.map((point) => new THREE.Vector2(point.x, point.y)))
-        const area = new THREE.Mesh(
-          new THREE.ShapeGeometry(shape),
-          new THREE.MeshBasicMaterial({
+        const shape = new Shape(areaPoints.map((point) => new Vector2(point.x, point.y)))
+        const area = new Mesh(
+          new ShapeGeometry(shape),
+          new MeshBasicMaterial({
             color: 0xffa238,
             transparent: true,
             opacity: 0.24,
-            side: THREE.DoubleSide,
+            side: DoubleSide,
           }),
         )
         area.position.z = -0.02
@@ -1213,9 +1282,9 @@ function MathViewport({
         mathAnalysis.activeRootAnalysis.roots
           .filter((root) => root >= bounds.minX && root <= bounds.maxX)
           .forEach((root) => {
-            const marker = new THREE.Mesh(
-              new THREE.CircleGeometry(0.13, 32),
-              new THREE.MeshBasicMaterial({ color: 0xfff2c9 }),
+            const marker = new Mesh(
+              new CircleGeometry(0.13, 32),
+              new MeshBasicMaterial({ color: 0xfff2c9 }),
             )
             marker.position.copy(toGraphPoint(root, 0, bounds.minY, bounds.maxY))
             marker.position.z = 0.06
@@ -1226,30 +1295,30 @@ function MathViewport({
       render2DGrid()
       const bounds = getVisibleMathBounds()
       const geometry = mathAnalysis.geometry
-      const geometryMaterial = new THREE.MeshBasicMaterial({
+      const geometryMaterial = new MeshBasicMaterial({
         color: 0x6ee7ff,
         transparent: true,
         opacity: 0.95,
       })
-      const accentMaterial = new THREE.MeshBasicMaterial({
+      const accentMaterial = new MeshBasicMaterial({
         color: 0xfff2c9,
         transparent: true,
         opacity: 0.95,
       })
-      const fillMaterial = new THREE.MeshBasicMaterial({
+      const fillMaterial = new MeshBasicMaterial({
         color: 0x6ee7ff,
-        side: THREE.DoubleSide,
+        side: DoubleSide,
         transparent: true,
         opacity: 0.16,
       })
       const geometryPoint = (point: Point2D, z = 0.05) =>
-        new THREE.Vector3(point.x * GRAPH_SCALE, point.y * GRAPH_SCALE, z)
+        new Vector3(point.x * GRAPH_SCALE, point.y * GRAPH_SCALE, z)
       const drawPoint = (point: Point2D, label: string, material = accentMaterial) => {
         if (point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) {
           return
         }
 
-        const marker = new THREE.Mesh(new THREE.CircleGeometry(0.13 / graphZoom, 28), material)
+        const marker = new Mesh(new CircleGeometry(0.13 / graphZoom, 28), material)
         marker.position.copy(geometryPoint(point, 0.1))
         marker.position.z = 0.1
         group.add(marker)
@@ -1275,12 +1344,12 @@ function MathViewport({
         drawPoint(geometry.b, 'B')
         drawPoint(geometry.midpoint, 'M', geometryMaterial)
       } else if (geometry?.kind === 'circle') {
-        const points: THREE.Vector3[] = []
+        const points: Vector3[] = []
         for (let index = 0; index <= 240; index += 1) {
           const theta = (Math.PI * 2 * index) / 240
           const x = geometry.center.x + Math.cos(theta) * geometry.radius
           const y = geometry.center.y + Math.sin(theta) * geometry.radius
-          points.push(new THREE.Vector3(x * GRAPH_SCALE, y * GRAPH_SCALE, 0.05))
+          points.push(new Vector3(x * GRAPH_SCALE, y * GRAPH_SCALE, 0.05))
         }
         line(points, 0x6ee7ff, 1)
         line(
@@ -1292,12 +1361,129 @@ function MathViewport({
           0.78,
         )
         drawPoint(geometry.center, 'C')
+      } else if (geometry?.kind === 'hyperbola') {
+        const lineIntersections = (slope: number) => {
+          const candidates: Point2D[] = [
+            {
+              x: bounds.minX,
+              y: geometry.center.y + slope * (bounds.minX - geometry.center.x),
+            },
+            {
+              x: bounds.maxX,
+              y: geometry.center.y + slope * (bounds.maxX - geometry.center.x),
+            },
+          ]
+
+          if (Math.abs(slope) > 0.000001) {
+            candidates.push(
+              {
+                x: geometry.center.x + (bounds.minY - geometry.center.y) / slope,
+                y: bounds.minY,
+              },
+              {
+                x: geometry.center.x + (bounds.maxY - geometry.center.y) / slope,
+                y: bounds.maxY,
+              },
+            )
+          }
+
+          return candidates
+            .filter(
+              (point) =>
+                point.x >= bounds.minX - 0.000001 &&
+                point.x <= bounds.maxX + 0.000001 &&
+                point.y >= bounds.minY - 0.000001 &&
+                point.y <= bounds.maxY + 0.000001,
+            )
+            .filter(
+              (point, index, points) =>
+                points.findIndex(
+                  (candidate) =>
+                    Math.abs(candidate.x - point.x) < 0.000001 &&
+                    Math.abs(candidate.y - point.y) < 0.000001,
+                ) === index,
+            )
+            .slice(0, 2)
+        }
+        const drawAsymptote = (slope: number) => {
+          const points = lineIntersections(slope)
+          if (points.length === 2) {
+            line(points.map((point) => geometryPoint(point, 0.025)), 0xffa238, 0.42)
+          }
+        }
+        const drawBranch = (points: Point2D[]) => {
+          const visiblePoints = points.filter(
+            (point) =>
+              point.x >= bounds.minX &&
+              point.x <= bounds.maxX &&
+              point.y >= bounds.minY &&
+              point.y <= bounds.maxY,
+          )
+          if (visiblePoints.length > 1) {
+            line(visiblePoints.map((point) => geometryPoint(point, 0.07)), 0x6ee7ff, 1)
+          }
+        }
+        const sampleCount = 220
+        const makeHorizontalBranch = (direction: -1 | 1, sign: -1 | 1) => {
+          const start = direction < 0 ? bounds.minX : geometry.center.x + geometry.a
+          const end = direction < 0 ? geometry.center.x - geometry.a : bounds.maxX
+          if (start > end) {
+            return []
+          }
+
+          return Array.from({ length: sampleCount + 1 }, (_, index) => {
+            const x = start + ((end - start) * index) / sampleCount
+            const offset = Math.abs(x - geometry.center.x)
+            const yOffset = (geometry.b / geometry.a) * Math.sqrt(Math.max(offset * offset - geometry.a * geometry.a, 0))
+            return { x, y: geometry.center.y + sign * yOffset }
+          })
+        }
+        const makeVerticalBranch = (direction: -1 | 1, sign: -1 | 1) => {
+          const start = direction < 0 ? bounds.minY : geometry.center.y + geometry.a
+          const end = direction < 0 ? geometry.center.y - geometry.a : bounds.maxY
+          if (start > end) {
+            return []
+          }
+
+          return Array.from({ length: sampleCount + 1 }, (_, index) => {
+            const y = start + ((end - start) * index) / sampleCount
+            const offset = Math.abs(y - geometry.center.y)
+            const xOffset = (geometry.b / geometry.a) * Math.sqrt(Math.max(offset * offset - geometry.a * geometry.a, 0))
+            return { x: geometry.center.x + sign * xOffset, y }
+          })
+        }
+
+        drawAsymptote(geometry.asymptoteSlopes[0])
+        drawAsymptote(geometry.asymptoteSlopes[1])
+        line(
+          [
+            geometryPoint(geometry.vertices[0], 0.04),
+            geometryPoint(geometry.vertices[1], 0.04),
+          ],
+          0xfff2c9,
+          0.72,
+        )
+
+        const branchDirections = [-1, 1] as const
+        if (geometry.transverseAxis === 'x') {
+          branchDirections.forEach((direction) => {
+            branchDirections.forEach((sign) => drawBranch(makeHorizontalBranch(direction, sign)))
+          })
+        } else {
+          branchDirections.forEach((direction) => {
+            branchDirections.forEach((sign) => drawBranch(makeVerticalBranch(direction, sign)))
+          })
+        }
+
+        drawPoint(geometry.center, 'C')
+        geometry.vertices.forEach((point) => drawPoint(point, 'V', geometryMaterial))
+        geometry.foci.forEach((point) => drawPoint(point, 'F'))
       } else if (geometry?.kind === 'triangle') {
         const trianglePoints = geometry.points.map((point) =>
           geometryPoint(point),
         )
-        const shape = new THREE.Shape(trianglePoints.map((point) => new THREE.Vector2(point.x, point.y)))
-        const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape), fillMaterial)
+        const shape = new Shape(trianglePoints.map((point) => new Vector2(point.x, point.y)))
+        const fill = new Mesh(new ShapeGeometry(shape), fillMaterial)
         fill.position.z = 0.03
         group.add(fill)
         line(
@@ -1327,26 +1513,26 @@ function MathViewport({
 
       if (vector) {
         const end = toGraphPoint(vector.x, vector.y)
-        const componentMaterial = new THREE.LineBasicMaterial({
+        const componentMaterial = new LineBasicMaterial({
           color: 0xffa238,
           transparent: true,
           opacity: 0.75,
         })
         group.add(
-          new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints([
-              new THREE.Vector3(end.x, 0, 0.01),
-              new THREE.Vector3(end.x, end.y, 0.01),
-              new THREE.Vector3(0, end.y, 0.01),
+          new Line(
+            new BufferGeometry().setFromPoints([
+              new Vector3(end.x, 0, 0.01),
+              new Vector3(end.x, end.y, 0.01),
+              new Vector3(0, end.y, 0.01),
             ]),
             componentMaterial,
           ),
         )
-        line([new THREE.Vector3(0, 0, 0.03), end.clone().setZ(0.03)], 0x6ee7ff, 1)
+        line([new Vector3(0, 0, 0.03), end.clone().setZ(0.03)], 0x6ee7ff, 1)
 
-        const marker = new THREE.Mesh(
-          new THREE.CircleGeometry(0.16, 32),
-          new THREE.MeshBasicMaterial({ color: 0x6ee7ff }),
+        const marker = new Mesh(
+          new CircleGeometry(0.16, 32),
+          new MeshBasicMaterial({ color: 0x6ee7ff }),
         )
         marker.position.copy(end)
         marker.position.z = 0.08
@@ -1354,10 +1540,10 @@ function MathViewport({
 
         if (mathAnalysis.kind === 'complex') {
           const conjugate = toGraphPoint(vector.x, -vector.y)
-          line([new THREE.Vector3(0, 0, 0.02), conjugate.clone().setZ(0.02)], 0xffa238, 0.75)
-          const conjugateMarker = new THREE.Mesh(
-            new THREE.CircleGeometry(0.11, 32),
-            new THREE.MeshBasicMaterial({ color: 0xffa238 }),
+          line([new Vector3(0, 0, 0.02), conjugate.clone().setZ(0.02)], 0xffa238, 0.75)
+          const conjugateMarker = new Mesh(
+            new CircleGeometry(0.11, 32),
+            new MeshBasicMaterial({ color: 0xffa238 }),
           )
           conjugateMarker.position.copy(conjugate)
           conjugateMarker.position.z = 0.08
@@ -1381,49 +1567,49 @@ function MathViewport({
                   : 7
         const primitiveScale = Math.min(1, 4 / Math.max(primitiveMaxDimension, 1))
         const toScenePoint3D = (point: Point3D) =>
-          new THREE.Vector3(point.x * primitiveScale, point.y * primitiveScale, point.z * primitiveScale)
-        const solidMaterial = new THREE.MeshStandardMaterial({
+          new Vector3(point.x * primitiveScale, point.y * primitiveScale, point.z * primitiveScale)
+        const solidMaterial = new MeshStandardMaterial({
           color: 0x60e6ff,
           emissive: 0x0a4050,
           metalness: 0.18,
           roughness: 0.28,
-          side: THREE.DoubleSide,
+          side: DoubleSide,
           transparent: true,
           opacity: 0.74,
         })
-        const wireMaterial = new THREE.MeshBasicMaterial({
+        const wireMaterial = new MeshBasicMaterial({
           color: 0xffa238,
           opacity: 0.24,
           transparent: true,
           wireframe: true,
         })
-        const accentMaterial = new THREE.MeshStandardMaterial({
+        const accentMaterial = new MeshStandardMaterial({
           color: 0xfff2c9,
           emissive: 0x493a14,
           metalness: 0.12,
           roughness: 0.24,
         })
         const addPrimitiveMesh = (
-          geometry: THREE.BufferGeometry,
-          position: THREE.Vector3,
-          quaternion?: THREE.Quaternion,
+          geometry: BufferGeometry,
+          position: Vector3,
+          quaternion?: Quaternion,
           material = solidMaterial,
         ) => {
-          const mesh = new THREE.Mesh(geometry, material)
+          const mesh = new Mesh(geometry, material)
           mesh.position.copy(position)
           if (quaternion) {
             mesh.quaternion.copy(quaternion)
           }
           group.add(mesh)
 
-          const wire = new THREE.Mesh(geometry.clone(), wireMaterial)
+          const wire = new Mesh(geometry.clone(), wireMaterial)
           wire.position.copy(position)
           wire.quaternion.copy(mesh.quaternion)
           group.add(wire)
           return mesh
         }
         const addCenterMarker = (center: Point3D) => {
-          const marker = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), accentMaterial)
+          const marker = new Mesh(new SphereGeometry(0.08, 24, 16), accentMaterial)
           marker.position.copy(toScenePoint3D(center))
           group.add(marker)
         }
@@ -1431,46 +1617,46 @@ function MathViewport({
         if (primitive.kind === 'sphere') {
           const center = toScenePoint3D(primitive.center)
           const radius = primitive.radius * primitiveScale
-          addPrimitiveMesh(new THREE.SphereGeometry(radius, 48, 32), center)
+          addPrimitiveMesh(new SphereGeometry(radius, 48, 32), center)
           addCenterMarker(primitive.center)
-          line([center, center.clone().add(new THREE.Vector3(radius, 0, 0))], 0xfff2c9, 0.82)
+          line([center, center.clone().add(new Vector3(radius, 0, 0))], 0xfff2c9, 0.82)
         } else if (primitive.kind === 'cube') {
           const side = primitive.side * primitiveScale
-          addPrimitiveMesh(new THREE.BoxGeometry(side, side, side), toScenePoint3D(primitive.center))
+          addPrimitiveMesh(new BoxGeometry(side, side, side), toScenePoint3D(primitive.center))
           addCenterMarker(primitive.center)
         } else if (primitive.kind === 'cylinder') {
           const center = toScenePoint3D(primitive.center)
           const radius = primitive.radius * primitiveScale
           const height = primitive.height * primitiveScale
-          addPrimitiveMesh(new THREE.CylinderGeometry(radius, radius, height, 64, 1, false), center)
+          addPrimitiveMesh(new CylinderGeometry(radius, radius, height, 64, 1, false), center)
           addCenterMarker(primitive.center)
           line(
             [
-              center.clone().add(new THREE.Vector3(0, -height / 2, 0)),
-              center.clone().add(new THREE.Vector3(0, height / 2, 0)),
+              center.clone().add(new Vector3(0, -height / 2, 0)),
+              center.clone().add(new Vector3(0, height / 2, 0)),
             ],
             0xfff2c9,
             0.78,
           )
-          line([center, center.clone().add(new THREE.Vector3(radius, 0, 0))], 0xfff2c9, 0.72)
+          line([center, center.clone().add(new Vector3(radius, 0, 0))], 0xfff2c9, 0.72)
         } else if (primitive.kind === 'cone') {
           const center = toScenePoint3D(primitive.center)
           const radius = primitive.radius * primitiveScale
           const height = primitive.height * primitiveScale
-          addPrimitiveMesh(new THREE.ConeGeometry(radius, height, 64, 1, false), center)
+          addPrimitiveMesh(new ConeGeometry(radius, height, 64, 1, false), center)
           addCenterMarker(primitive.center)
           line(
             [
-              center.clone().add(new THREE.Vector3(0, -height / 2, 0)),
-              center.clone().add(new THREE.Vector3(0, height / 2, 0)),
+              center.clone().add(new Vector3(0, -height / 2, 0)),
+              center.clone().add(new Vector3(0, height / 2, 0)),
             ],
             0xfff2c9,
             0.78,
           )
           line(
             [
-              center.clone().add(new THREE.Vector3(0, height / 2, 0)),
-              center.clone().add(new THREE.Vector3(radius, -height / 2, 0)),
+              center.clone().add(new Vector3(0, height / 2, 0)),
+              center.clone().add(new Vector3(radius, -height / 2, 0)),
             ],
             0xfff2c9,
             0.72,
@@ -1489,40 +1675,40 @@ function MathViewport({
             1,
           )
           line([a, b], 0xfff2c9, 0.82)
-          const markerA = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), accentMaterial)
+          const markerA = new Mesh(new SphereGeometry(0.08, 24, 16), accentMaterial)
           markerA.position.copy(a)
           group.add(markerA)
-          const markerB = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), accentMaterial)
+          const markerB = new Mesh(new SphereGeometry(0.08, 24, 16), accentMaterial)
           markerB.position.copy(b)
           group.add(markerB)
         } else {
-          const normal = new THREE.Vector3(primitive.normal.x, primitive.normal.y, primitive.normal.z)
+          const normal = new Vector3(primitive.normal.x, primitive.normal.y, primitive.normal.z)
           const normalLength = normal.length()
           const unitNormal = normal.clone().normalize()
           const position = unitNormal.clone().multiplyScalar((primitive.offset / normalLength) * primitiveScale)
-          const quaternion = new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(0, 0, 1),
+          const quaternion = new Quaternion().setFromUnitVectors(
+            new Vector3(0, 0, 1),
             unitNormal,
           )
-          const planeMaterial = new THREE.MeshStandardMaterial({
+          const planeMaterial = new MeshStandardMaterial({
             color: 0x60e6ff,
             emissive: 0x0a4050,
             metalness: 0.12,
             roughness: 0.34,
-            side: THREE.DoubleSide,
+            side: DoubleSide,
             transparent: true,
             opacity: 0.34,
           })
 
-          addPrimitiveMesh(new THREE.PlaneGeometry(7, 7, 12, 12), position, quaternion, planeMaterial)
+          addPrimitiveMesh(new PlaneGeometry(7, 7, 12, 12), position, quaternion, planeMaterial)
           line([position, position.clone().add(unitNormal.multiplyScalar(1.5))], 0xfff2c9, 0.88)
         }
       }
     } else if (mathAnalysis.kind === 'surface3d') {
-      const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
+      const grid = new GridHelper(12, 24, 0x315866, 0x14242b)
       grid.position.y = -2.2
       group.add(grid)
-      const axes = new THREE.AxesHelper(3.4)
+      const axes = new AxesHelper(3.4)
       axes.position.y = -2.2
       group.add(axes)
 
@@ -1550,29 +1736,29 @@ function MathViewport({
         }
       }
 
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
       geometry.setIndex(indices)
       geometry.computeVertexNormals()
 
       group.add(
-        new THREE.Mesh(
+        new Mesh(
           geometry,
-          new THREE.MeshStandardMaterial({
+          new MeshStandardMaterial({
             color: 0x60e6ff,
             emissive: 0x0a4050,
             metalness: 0.2,
             roughness: 0.26,
-            side: THREE.DoubleSide,
+            side: DoubleSide,
             transparent: true,
             opacity: 0.72,
           }),
         ),
       )
       group.add(
-        new THREE.Mesh(
+        new Mesh(
           geometry,
-          new THREE.MeshBasicMaterial({
+          new MeshBasicMaterial({
             color: 0xffa238,
             opacity: 0.2,
             transparent: true,
@@ -1582,7 +1768,7 @@ function MathViewport({
       )
     } else if (mathAnalysis.kind === 'ratio') {
       const divisionParts = parseSimpleDivision(expression)
-      const grid = new THREE.GridHelper(12, 24, 0x315866, 0x14242b)
+      const grid = new GridHelper(12, 24, 0x315866, 0x14242b)
       grid.position.y = -2.2
       group.add(grid)
 
@@ -1593,26 +1779,26 @@ function MathViewport({
           divisionParts.remainder === null
             ? Math.round(divisionParts.fraction * segmentCount)
             : Math.round((divisionParts.remainder / divisionParts.denominator) * segmentCount)
-        const fullMaterial = new THREE.MeshStandardMaterial({
+        const fullMaterial = new MeshStandardMaterial({
           color: 0xffa238,
           emissive: 0x5f2600,
           metalness: 0.35,
           roughness: 0.28,
         })
-        const fractionMaterial = new THREE.MeshStandardMaterial({
+        const fractionMaterial = new MeshStandardMaterial({
           color: 0x6ee7ff,
           emissive: 0x104a59,
           metalness: 0.2,
           roughness: 0.24,
         })
-        const tickMaterial = new THREE.MeshBasicMaterial({
+        const tickMaterial = new MeshBasicMaterial({
           color: 0xf4f8ff,
           opacity: 0.55,
           transparent: true,
         })
 
         for (let index = 0; index < Math.min(divisionParts.whole, 4); index += 1) {
-          meshBox(barWidth, 0.34, 0.5, fullMaterial, new THREE.Vector3(0, 0.42 + index * 0.48, 0))
+          meshBox(barWidth, 0.34, 0.5, fullMaterial, new Vector3(0, 0.42 + index * 0.48, 0))
         }
 
         const fractionWidth = Math.max(barWidth * divisionParts.fraction, 0.04)
@@ -1621,12 +1807,12 @@ function MathViewport({
           0.34,
           0.5,
           fractionMaterial,
-          new THREE.Vector3(-barWidth / 2 + fractionWidth / 2, -0.24, 0),
+          new Vector3(-barWidth / 2 + fractionWidth / 2, -0.24, 0),
         )
 
         for (let index = 0; index <= segmentCount; index += 1) {
           const x = -barWidth / 2 + (index / segmentCount) * barWidth
-          meshBox(0.018, index % 5 === 0 ? 0.5 : 0.32, 0.58, tickMaterial, new THREE.Vector3(x, -0.24, 0.05))
+          meshBox(0.018, index % 5 === 0 ? 0.5 : 0.32, 0.58, tickMaterial, new Vector3(x, -0.24, 0.05))
         }
 
         for (let index = 0; index < filledSegments; index += 1) {
@@ -1636,7 +1822,7 @@ function MathViewport({
             0.08,
             0.68,
             fractionMaterial,
-            new THREE.Vector3(-barWidth / 2 + segmentWidth * (index + 0.5), -0.74, 0.02),
+            new Vector3(-barWidth / 2 + segmentWidth * (index + 0.5), -0.74, 0.02),
           )
         }
       }
@@ -1644,52 +1830,52 @@ function MathViewport({
       const scalar = Number.isFinite(numericValue ?? NaN) ? Number(numericValue) : 0
       const visibleValue = clamp(scalar, -10, 10)
       const scaleWidth = 6
-      const scaleMaterial = new THREE.MeshBasicMaterial({
+      const scaleMaterial = new MeshBasicMaterial({
         color: 0xf4f8ff,
         opacity: 0.18,
         transparent: true,
       })
-      const tickMaterial = new THREE.MeshBasicMaterial({
+      const tickMaterial = new MeshBasicMaterial({
         color: 0xf4f8ff,
         opacity: 0.52,
         transparent: true,
       })
-      const valueMaterial = new THREE.MeshStandardMaterial({
+      const valueMaterial = new MeshStandardMaterial({
         color: scalar < 0 ? 0xffa238 : 0x6ee7ff,
         emissive: scalar < 0 ? 0x5f2600 : 0x104a59,
         metalness: 0.22,
         roughness: 0.28,
       })
-      const zeroMaterial = new THREE.MeshStandardMaterial({
+      const zeroMaterial = new MeshStandardMaterial({
         color: 0xf4f8ff,
         emissive: 0x111820,
         metalness: 0.14,
         roughness: 0.32,
       })
 
-      meshBox(scaleWidth, 0.04, 0.08, scaleMaterial, new THREE.Vector3(0, -0.4, 0))
+      meshBox(scaleWidth, 0.04, 0.08, scaleMaterial, new Vector3(0, -0.4, 0))
       for (let tick = -10; tick <= 10; tick += 1) {
         meshBox(
           0.022,
           tick === 0 ? 0.76 : tick % 5 === 0 ? 0.46 : 0.28,
           0.1,
           tickMaterial,
-          new THREE.Vector3((tick / 10) * (scaleWidth / 2), -0.4, 0.02),
+          new Vector3((tick / 10) * (scaleWidth / 2), -0.4, 0.02),
         )
       }
 
       const valueX = (visibleValue / 10) * (scaleWidth / 2)
       const distance = Math.abs(valueX)
       if (distance > 0.025) {
-        meshBox(distance, 0.22, 0.48, valueMaterial, new THREE.Vector3(valueX / 2, -0.05, 0))
+        meshBox(distance, 0.22, 0.48, valueMaterial, new Vector3(valueX / 2, -0.05, 0))
       }
 
-      const origin = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 36), zeroMaterial)
+      const origin = new Mesh(new CylinderGeometry(0.16, 0.16, 0.08, 36), zeroMaterial)
       origin.rotation.x = Math.PI / 2
       origin.position.set(0, -0.4, 0.12)
       group.add(origin)
 
-      const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.14, 36), valueMaterial)
+      const marker = new Mesh(new CylinderGeometry(0.22, 0.22, 0.14, 36), valueMaterial)
       marker.rotation.x = Math.PI / 2
       marker.position.set(valueX, 0.18, 0.12)
       marker.scale.x = scalar === 0 ? 0.78 : 1
@@ -1701,7 +1887,7 @@ function MathViewport({
       const { width: nextWidth, height: nextHeight } = entry.contentRect
       renderer.setSize(nextWidth, nextHeight)
 
-      if (camera instanceof THREE.PerspectiveCamera) {
+      if (camera instanceof PerspectiveCamera) {
         camera.aspect = nextWidth / Math.max(nextHeight, 1)
       } else {
         const nextAspect = nextWidth / Math.max(nextHeight, 1)
@@ -1717,7 +1903,7 @@ function MathViewport({
 
     let isInspecting = false
     const setInspectXFromPointer = (event: PointerEvent) => {
-      if (mathAnalysis.kind !== 'function2d' || !(camera instanceof THREE.OrthographicCamera)) {
+      if (mathAnalysis.kind !== 'function2d' || !(camera instanceof OrthographicCamera)) {
         return
       }
 
@@ -1896,14 +2082,14 @@ function MathViewport({
       renderer.domElement.removeEventListener('pointerup', handlePointerUp)
       renderer.domElement.removeEventListener('pointercancel', handlePointerUp)
       scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
+        if (object instanceof Mesh || object instanceof Line || object instanceof Points) {
           object.geometry.dispose()
           if (Array.isArray(object.material)) {
             object.material.forEach((material) => material.dispose())
           } else {
             object.material.dispose()
           }
-        } else if (object instanceof THREE.Sprite) {
+        } else if (object instanceof Sprite) {
           object.material.map?.dispose()
           object.material.dispose()
         }
@@ -2116,6 +2302,23 @@ function App() {
           ['radius', formatValue(geometry.radius)],
           ['area', formatValue(geometry.area)],
           ['circumference', formatValue(geometry.circumference)],
+        ]
+      }
+
+      if (geometry.kind === 'hyperbola') {
+        const asymptoteBase =
+          Math.abs(geometry.center.x) < 0.000001 && Math.abs(geometry.center.y) < 0.000001
+            ? `y = ±${formatValue(Math.abs(geometry.asymptoteSlopes[1]))}x`
+            : `y - ${formatValue(geometry.center.y)} = ±${formatValue(Math.abs(geometry.asymptoteSlopes[1]))}(x - ${formatValue(geometry.center.x)})`
+
+        return [
+          ['type', 'hyperbola'],
+          ['center', formatPoint(geometry.center)],
+          ['opens', geometry.transverseAxis === 'x' ? 'left and right' : 'up and down'],
+          ['a, b, c', `${formatValue(geometry.a)}, ${formatValue(geometry.b)}, ${formatValue(geometry.c)}`],
+          ['vertices', geometry.vertices.map(formatPoint).join(', ')],
+          ['foci', geometry.foci.map(formatPoint).join(', ')],
+          ['asymptotes', asymptoteBase],
         ]
       }
 
@@ -2676,6 +2879,7 @@ function App() {
     { icon: <CircleDot size={15} />, kind: 'point' },
     { icon: <Spline size={15} />, kind: 'segment' },
     { icon: <Circle size={15} />, kind: 'circle' },
+    { icon: <Spline size={15} />, kind: 'hyperbola' },
     { icon: <Triangle size={15} />, kind: 'triangle' },
     { icon: <Spline size={15} />, kind: 'line3d' },
     { icon: <Box size={15} />, kind: 'sphere' },

@@ -3,6 +3,7 @@ import nerdamer from 'nerdamer'
 import 'nerdamer/Calculus'
 import {
   type Geometry2DObject,
+  type Point2D,
   type Primitive3DObject,
   parseGeometry2DObject,
   parsePrimitive3DObject,
@@ -382,7 +383,9 @@ export const buildScope = (angleMode: AngleMode, extraScope: Record<string, numb
     sinh: (value: number) => Math.sinh(value),
     cosh: (value: number) => Math.cosh(value),
     tanh: (value: number) => Math.tanh(value),
+    abs: (value: number) => Math.abs(value),
     ln: (value: number) => Math.log(value),
+    log: (value: number) => Math.log10(value),
     log10: (value: number) => Math.log10(value),
     log2: (value: number) => Math.log2(value),
     rand: () => Math.random(),
@@ -451,7 +454,155 @@ export const parseSimpleDivision = (expression: string): DivisionParts | null =>
 }
 
 export const parseGeometry = (expression: string, angleMode: AngleMode) =>
-  parseGeometry2DObject(expression, (value) => evaluateNumeric(value, angleMode))
+  parseGeometry2DObject(expression, (value) => evaluateNumeric(value, angleMode)) ??
+  parseStandardHyperbola(expression, angleMode)
+
+const stripOuterParens = (value: string) => {
+  let current = value.trim()
+  let changed = true
+
+  while (changed && current.startsWith('(') && current.endsWith(')')) {
+    changed = false
+    let depth = 0
+    let wrapsWholeValue = true
+
+    for (let index = 0; index < current.length; index += 1) {
+      const character = current[index]
+      if (character === '(') {
+        depth += 1
+      } else if (character === ')') {
+        depth -= 1
+        if (depth === 0 && index < current.length - 1) {
+          wrapsWholeValue = false
+          break
+        }
+      }
+    }
+
+    if (wrapsWholeValue) {
+      current = current.slice(1, -1).trim()
+      changed = true
+    }
+  }
+
+  return current
+}
+
+const splitAtTopLevelOperator = (value: string, operator: string, startIndex = 0) => {
+  let depth = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (character === '(' || character === '[' || character === '<') {
+      depth += 1
+    } else if (character === ')' || character === ']' || character === '>') {
+      depth -= 1
+    } else if (character === operator && depth === 0 && index >= startIndex) {
+      return [value.slice(0, index), value.slice(index + 1)] as const
+    }
+  }
+
+  return null
+}
+
+const parseSquaredVariableTerm = (term: string, angleMode: AngleMode) => {
+  const compact = stripOuterParens(term)
+  const division = splitAtTopLevelOperator(compact, '/')
+  const numerator = stripOuterParens(division?.[0] ?? compact)
+  const denominatorExpression = division?.[1] ?? '1'
+  const numeratorMatch = numerator.match(/^([xy])\^2$/)
+
+  if (!numeratorMatch) {
+    return null
+  }
+
+  const denominator = evaluateNumeric(denominatorExpression, angleMode)
+  if (denominator === null || denominator <= 0) {
+    return null
+  }
+
+  return {
+    denominator,
+    variable: numeratorMatch[1] as 'x' | 'y',
+  }
+}
+
+export const parseStandardHyperbola = (
+  expression: string,
+  angleMode: AngleMode,
+): Geometry2DObject | null => {
+  const compact = normalizeExpressionForMath(expression).replace(/\s+/g, '')
+  const equation = splitAtTopLevelOperator(compact, '=')
+  if (!equation) {
+    return null
+  }
+
+  const [leftExpression, rightExpression] = equation
+  const subtraction = splitAtTopLevelOperator(stripOuterParens(leftExpression), '-', 1)
+  if (!subtraction) {
+    return null
+  }
+
+  const positiveTerm = parseSquaredVariableTerm(subtraction[0], angleMode)
+  const negativeTerm = parseSquaredVariableTerm(subtraction[1], angleMode)
+  let rightValue = evaluateNumeric(rightExpression, angleMode)
+
+  if (!positiveTerm || !negativeTerm || rightValue === null || rightValue === 0) {
+    return null
+  }
+
+  if (positiveTerm.variable === negativeTerm.variable) {
+    return null
+  }
+
+  let transverseTerm = positiveTerm
+  let conjugateTerm = negativeTerm
+  if (rightValue < 0) {
+    transverseTerm = negativeTerm
+    conjugateTerm = positiveTerm
+    rightValue = Math.abs(rightValue)
+  }
+
+  const a = Math.sqrt(transverseTerm.denominator * rightValue)
+  const b = Math.sqrt(conjugateTerm.denominator * rightValue)
+  const c = Math.hypot(a, b)
+  const transverseAxis = transverseTerm.variable
+  const center = { x: 0, y: 0 }
+  const vertices: [Point2D, Point2D] =
+    transverseAxis === 'x'
+      ? [
+          { x: -a, y: 0 },
+          { x: a, y: 0 },
+        ]
+      : [
+          { x: 0, y: -a },
+          { x: 0, y: a },
+        ]
+  const foci: [Point2D, Point2D] =
+    transverseAxis === 'x'
+      ? [
+          { x: -c, y: 0 },
+          { x: c, y: 0 },
+        ]
+      : [
+          { x: 0, y: -c },
+          { x: 0, y: c },
+        ]
+  const slopeMagnitude = transverseAxis === 'x' ? b / a : a / b
+
+  return {
+    a,
+    asymptoteSlopes: [-slopeMagnitude, slopeMagnitude],
+    b,
+    c,
+    center,
+    eccentricity: c / a,
+    foci,
+    kind: 'hyperbola',
+    transverseAxis,
+    vertices,
+  }
+}
 
 export const parsePrimitive3D = (expression: string, angleMode: AngleMode) =>
   parsePrimitive3DObject(expression, (value) => evaluateNumeric(value, angleMode))
@@ -907,4 +1058,3 @@ export const appendToken = (expression: string, token: string) => {
 
 export const shouldContinueEvaluatedResult = (token: string) =>
   ['+', '-', '*', '/', '^', '^2', '^3'].includes(token)
-

@@ -27,9 +27,10 @@ surfaces to the browser:
   Press `Alt+Shift+C`, or right-click and choose *Toggle Hypercalculator
   overlay*.
 
-All computation runs locally in the browser — the extension makes no network
-requests and collects no data. It requests only `activeTab`, so it can act on a
-page only when you explicitly invoke it; it has no standing access to your
+All computation runs locally in the browser. The extension does not use
+analytics, accounts, tracking scripts, cookies, remote APIs, or remote font
+requests, and it collects no data. It requests only `activeTab`, so it can act
+on a page only when you explicitly invoke it; it has no standing access to your
 browsing.
 
 ### Install from source
@@ -64,5 +65,7 @@ Then open the local URL printed by Vite.
 
 ```bash
 npm run lint
+npm run test
 npm run build
+npm run package
 ```

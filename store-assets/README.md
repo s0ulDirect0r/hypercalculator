@@ -11,13 +11,16 @@ All 1280×800 PNG — the store's expected size.
 | `01-graph-2d.png` | Standalone app graphing `x²-4` with roots called out |
 | `02-graph-3d.png` | Standalone app rendering the 3D surface `x²-y²` |
 | `03-overlay-on-page.png` | The floating overlay on a real web page |
+| `small-promo-tile.png` | Required 440×280 promotional tile |
+| `marquee-promo-tile.png` | Optional 1400×560 promotional tile |
 
-## Still needed before submitting
+## Listing Copy
 
-- **Small promo tile** — 440×280 PNG/JPEG (required by the store).
-- **Marquee promo tile** — 1400×560 (optional, for featuring).
-- **Listing copy** — name, a 132-character summary, and a detailed description.
-- Privacy form: declare "does not collect user data" (accurate — the
-  extension makes no network requests).
+See `listing.md` for the name, summary, detailed description, and privacy
+disclosure text.
+
+Privacy form: declare "does not collect user data" (accurate — the extension
+does not use analytics, accounts, tracking scripts, cookies, remote APIs, or
+remote font requests).
 
 Run `npm run package` to build the upload archive.

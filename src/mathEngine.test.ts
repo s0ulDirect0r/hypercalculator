@@ -32,6 +32,9 @@ describe('math engine expression handling', () => {
     expectNumber(tryEvaluate('2 + 3 * 4', 'rad'), 14)
     expectNumber(tryEvaluate('(2 + 3) * 4', 'rad'), 20)
     expectNumber(tryEvaluate('10 - 6 / 3 + 2^3', 'rad'), 16)
+    expectNumber(tryEvaluate('-2^2', 'rad'), -4)
+    expectNumber(tryEvaluate('2^-3', 'rad'), 0.125)
+    expectNumber(tryEvaluate('5!', 'rad'), 120)
   })
 
   it('evaluates calculator functions and angle modes', () => {
@@ -77,6 +80,24 @@ describe('math object analysis', () => {
     const circle = makeAnalysis('circle(center=(2,3), r=4)', 'rad', 'auto', 'function')
     expect(circle.kind).toBe('geometry2d')
     expect(circle.geometry?.kind).toBe('circle')
+
+    const hyperbola = makeAnalysis(formatExpressionInput('(x^2/20)-(y^2/30)=1'), 'rad', 'auto', 'function')
+    expect(hyperbola.kind).toBe('geometry2d')
+    expect(hyperbola.geometry?.kind).toBe('hyperbola')
+    if (hyperbola.geometry?.kind === 'hyperbola') {
+      expect(hyperbola.geometry.transverseAxis).toBe('x')
+      expect(hyperbola.geometry.a).toBeCloseTo(Math.sqrt(20), 10)
+      expect(hyperbola.geometry.b).toBeCloseTo(Math.sqrt(30), 10)
+    }
+
+    const verticalHyperbola = makeAnalysis('y^2/9 - x^2/16 = 1', 'rad', 'auto', 'function')
+    expect(verticalHyperbola.kind).toBe('geometry2d')
+    expect(verticalHyperbola.geometry?.kind).toBe('hyperbola')
+    if (verticalHyperbola.geometry?.kind === 'hyperbola') {
+      expect(verticalHyperbola.geometry.transverseAxis).toBe('y')
+      expect(verticalHyperbola.geometry.a).toBeCloseTo(3, 10)
+      expect(verticalHyperbola.geometry.b).toBeCloseTo(4, 10)
+    }
 
     const sphere = makeAnalysis('sphere(center=(0,0,0), r=3)', 'rad', 'auto', 'function')
     expect(sphere.kind).toBe('primitive3d')
