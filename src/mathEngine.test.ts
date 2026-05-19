@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendToken,
+  encloseExpressionInFunction,
   evaluateNumeric,
   formatExpressionInput,
   makeAnalysis,
@@ -50,6 +51,18 @@ describe('math engine expression handling', () => {
     expect(appendToken('7+', '.')).toBe('7+0.')
     expect(appendToken('7.2', '.')).toBe('7.2')
     expect(appendToken('x', '^2')).toBe('x^2')
+  })
+
+  it('wraps the current term when applying a root function', () => {
+    expect(encloseExpressionInFunction('9 + 7', 'sqrt')).toBe('9 + sqrt(7)')
+    expect(encloseExpressionInFunction('2*-7', 'sqrt')).toBe('2*sqrt(-7)')
+    expect(encloseExpressionInFunction('2 * (3 + 4)', 'sqrt')).toBe('2 * sqrt((3 + 4))')
+    expect(encloseExpressionInFunction('2 + sin(30)', 'sqrt')).toBe('2 + sqrt(sin(30))')
+    expect(encloseExpressionInFunction('27', 'cbrt')).toBe('cbrt(27)')
+    expect(
+      encloseExpressionInFunction('9 + 81', 'nthRoot', { closeExpression: false, suffix: ', ' }),
+    ).toBe('9 + nthRoot(81, ')
+    expect(encloseExpressionInFunction('0', 'sqrt')).toBe('sqrt(')
   })
 })
 

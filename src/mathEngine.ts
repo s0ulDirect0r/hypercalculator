@@ -1002,6 +1002,109 @@ export const toggleSign = (expression: string) => {
   return `${expression.slice(0, match.index)}${nextValue}`
 }
 
+const isUnaryMinus = (expression: string, index: number) => {
+  if (expression[index] !== '-') {
+    return false
+  }
+
+  const previous = expression.slice(0, index).trimEnd().at(-1)
+  return previous === undefined || /[+\-*/^(,]/.test(previous)
+}
+
+const isExponentMinus = (expression: string, index: number) => {
+  if (expression[index] !== '-') {
+    return false
+  }
+
+  const previous = expression[index - 1]
+  return previous === '^' || previous === 'e' || previous === 'E'
+}
+
+const matchingOpenBracket = (closeBracket: string) =>
+  closeBracket === ')' ? '(' : closeBracket === ']' ? '[' : '<'
+
+const findMatchingOpenBracket = (expression: string, closeIndex: number) => {
+  const closeBracket = expression[closeIndex]
+  const openBracket = matchingOpenBracket(closeBracket)
+  let depth = 0
+
+  for (let index = closeIndex; index >= 0; index -= 1) {
+    const character = expression[index]
+    if (character === closeBracket) {
+      depth += 1
+    } else if (character === openBracket) {
+      depth -= 1
+      if (depth === 0) {
+        return index
+      }
+    }
+  }
+
+  return closeIndex
+}
+
+const getCurrentTermBounds = (expression: string) => {
+  const end = expression.trimEnd().length
+  if (end === 0) {
+    return { end, start: 0 }
+  }
+
+  const lastCharacter = expression[end - 1]
+  if (/[+\-*/,(]/.test(lastCharacter)) {
+    return { end, start: end }
+  }
+
+  if (/[)\]>]/.test(lastCharacter)) {
+    let start = findMatchingOpenBracket(expression, end - 1)
+    while (/[A-Za-z]/.test(expression[start - 1] ?? '')) {
+      start -= 1
+    }
+    if (isUnaryMinus(expression, start - 1)) {
+      start -= 1
+    }
+    return { end, start }
+  }
+
+  let start = end
+  for (let index = end - 1; index >= 0; index -= 1) {
+    const character = expression[index]
+    if (
+      [',', '+', '*', '/'].includes(character) ||
+      (character === '-' && !isUnaryMinus(expression, index) && !isExponentMinus(expression, index))
+    ) {
+      start = index + 1
+      while (/\s/.test(expression[start] ?? '')) {
+        start += 1
+      }
+      break
+    }
+    start = index
+  }
+
+  return { end, start }
+}
+
+export const encloseExpressionInFunction = (
+  expression: string,
+  functionName: string,
+  options: { closeExpression?: boolean; suffix?: string } = {},
+) => {
+  const currentExpression = expression.trim()
+  const closeExpression = options.closeExpression ?? true
+  const suffix = options.suffix ?? ''
+  if (!currentExpression || currentExpression === '0') {
+    return `${functionName}(`
+  }
+
+  const { end, start } = getCurrentTermBounds(expression)
+  const currentTerm = expression.slice(start, end)
+  if (!currentTerm.trim()) {
+    return `${expression.slice(0, end)}${functionName}(`
+  }
+
+  return `${expression.slice(0, start)}${functionName}(${currentTerm}${suffix}${closeExpression ? ')' : ''}${expression.slice(end)}`
+}
+
 const expressionEndsWithBinaryOperator = (expression: string) => /[+\-*/]$/.test(expression)
 
 const currentNumberHasDecimal = (expression: string) => {

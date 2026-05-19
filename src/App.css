@@ -57,6 +57,16 @@
   min-height: 240px;
 }
 
+:root[data-context] .calculator-deck {
+  gap: 10px;
+  padding: 16px 12px 14px;
+}
+
+:root[data-context] .keypad,
+:root[data-context] .object-key-strip {
+  gap: 6px;
+}
+
 .window-bar {
   min-height: 72px;
   display: flex;
@@ -329,6 +339,15 @@
   gap: 12px;
   padding: 22px 20px 20px;
   background: rgba(2, 4, 7, 0.34);
+}
+
+.calculator-deck.basic-mode {
+  grid-template-areas:
+    'display'
+    'composer'
+    'status'
+    'history'
+    'keypad';
 }
 
 .display-strip {
@@ -742,6 +761,14 @@
   gap: 10px;
 }
 
+.keypad.basic-keypad {
+  grid-template-columns: repeat(4, minmax(64px, 1fr));
+}
+
+.keypad.basic-keypad .calc-key {
+  aspect-ratio: 1.75 / 1;
+}
+
 .object-key-strip {
   grid-area: objectkeys;
   display: grid;
@@ -887,6 +914,17 @@ button:focus-visible {
       'sign sign sign zero zero zero decimal decimal decimal equals equals equals';
     grid-auto-rows: clamp(58px, 7.8vw, 82px);
     gap: 8px;
+  }
+
+  .keypad.basic-keypad {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-areas:
+      'clear backspace percent divide'
+      'seven eight nine multiply'
+      'four five six subtract'
+      'one two three add'
+      'sign zero decimal equals';
+    grid-auto-rows: clamp(58px, 8vw, 78px);
   }
 
   .calc-key {
@@ -1178,6 +1216,15 @@ button:focus-visible {
   .keypad {
     grid-auto-rows: clamp(52px, 13vw, 68px);
     gap: 7px;
+  }
+
+  :root[data-context] .keypad {
+    grid-auto-rows: clamp(48px, 12vw, 62px);
+    gap: 6px;
+  }
+
+  .keypad.basic-keypad {
+    grid-auto-rows: clamp(56px, 14vw, 72px);
   }
 
 }

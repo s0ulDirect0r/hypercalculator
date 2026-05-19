@@ -70,6 +70,7 @@ import {
   appendToken,
   derivativeAt,
   displayExpression,
+  encloseExpressionInFunction,
   evaluateForPoint,
   evaluateMathAnalysis,
   evaluateRawForPoint,
@@ -104,6 +105,7 @@ type HistoryItem = {
   expression: string
   value: string
 }
+type CalculatorMode = 'basic' | 'scientific'
 type SpiritMood = 'curious' | 'idle' | 'observing' | 'pending'
 type SpiritPrompt = {
   label: string
@@ -2132,7 +2134,8 @@ function App() {
   const initialExpression = formatExpressionInput('0')
   const [expression, setExpression] = useState(initialExpression)
   const [committedExpression, setCommittedExpression] = useState(initialExpression)
-  const [angleMode, setAngleMode] = useState<AngleMode>('rad')
+  const [angleMode, setAngleMode] = useState<AngleMode>('deg')
+  const [calculatorMode, setCalculatorMode] = useState<CalculatorMode>('basic')
   const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('auto')
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('function')
   const [axisValuesVisible, setAxisValuesVisible] = useState(true)
@@ -2616,6 +2619,39 @@ function App() {
         })
         setLastActionWasEvaluation(false)
         return
+      case 'sqrt(':
+        setExpression((current) => {
+          const baseExpression =
+            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+              ? String(evaluated.numeric)
+              : current
+          return encloseExpressionInFunction(baseExpression, 'sqrt')
+        })
+        setLastActionWasEvaluation(false)
+        return
+      case 'cbrt(':
+        setExpression((current) => {
+          const baseExpression =
+            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+              ? String(evaluated.numeric)
+              : current
+          return encloseExpressionInFunction(baseExpression, 'cbrt')
+        })
+        setLastActionWasEvaluation(false)
+        return
+      case 'nthRoot(':
+        setExpression((current) => {
+          const baseExpression =
+            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+              ? String(evaluated.numeric)
+              : current
+          return encloseExpressionInFunction(baseExpression, 'nthRoot', {
+            closeExpression: false,
+            suffix: ', ',
+          })
+        })
+        setLastActionWasEvaluation(false)
+        return
       case 'sample-function':
         commitExpression('x^2 - 4', { nextAnalysisMode: 'function', nextVisualizationMode: 'fx' })
         return
@@ -2706,13 +2742,21 @@ function App() {
   })
 
   const secondaryActive = secondary || shiftSecondary
-  const keys = [
+  const scientificKeys = [
     ['(', ')', 'mc', 'm+', 'm-', 'mr', 'backspace', 'AC', '%', '/'],
     ['2nd', '^2', '^3', '^', 'e^', '10^', '7', '8', '9', '*'],
     ['reciprocal', 'sqrt(', 'cbrt(', 'nthRoot(', 'ln(', 'log10(', '4', '5', '6', '-'],
     ['!', secondaryActive ? 'asin(' : 'sin(', secondaryActive ? 'acos(' : 'cos(', secondaryActive ? 'atan(' : 'tan(', 'e', '*10^', '1', '2', '3', '+'],
     ['Rand', 'sinh(', 'cosh(', 'tanh(', 'pi', angleMode === 'rad' ? 'Rad' : 'Deg', '+/-', '0', '.', '='],
   ]
+  const basicKeys = [
+    ['AC', 'backspace', '%', '/'],
+    ['7', '8', '9', '*'],
+    ['4', '5', '6', '-'],
+    ['1', '2', '3', '+'],
+    ['+/-', '0', '.', '='],
+  ]
+  const keys = calculatorMode === 'scientific' ? scientificKeys : basicKeys
   const objectKeys = ['x', 'y', 'i', 'log2(', '<', ',', '>']
 
   const labelForKey = (key: string) => {
@@ -2985,7 +3029,7 @@ function App() {
           <p>{spiritPrompt.message}</p>
         </section>
 
-        <section className="calculator-deck">
+        <section className={`calculator-deck ${calculatorMode}-mode`}>
           <div className={`display-strip ${isDisplayObject || hasPendingExpression ? 'function-display' : ''}`}>
             <div
               className={`expression-editor ${expressionFocused ? 'editing' : 'rendered'}`}
@@ -3083,6 +3127,22 @@ function App() {
             <span>{angleMode.toUpperCase()}</span>
             <span>MEM {formatValue(memory)}</span>
             <button
+              aria-pressed={calculatorMode === 'basic'}
+              className={calculatorMode === 'basic' ? 'active' : undefined}
+              onClick={() => setCalculatorMode('basic')}
+              type="button"
+            >
+              Basic
+            </button>
+            <button
+              aria-pressed={calculatorMode === 'scientific'}
+              className={calculatorMode === 'scientific' ? 'active' : undefined}
+              onClick={() => setCalculatorMode('scientific')}
+              type="button"
+            >
+              Scientific
+            </button>
+            <button
               aria-pressed={!canvasVisible}
               className={canvasVisible ? undefined : 'active'}
               onClick={() => setCanvasVisible((visible) => !visible)}
@@ -3178,22 +3238,24 @@ function App() {
             </div>
           )}
 
-          <div className="object-key-strip" aria-label="Math object keys">
-            {objectKeys.map((key) => (
-              <button
-                aria-label={labelForKey(key)}
-                className={`calc-key ${keyClass(key)}`}
-                data-key-area={keyArea(key)}
-                key={key}
-                onClick={() => handleInput(key)}
-                type="button"
-              >
-                {labelForKey(key)}
-              </button>
-            ))}
-          </div>
+          {calculatorMode === 'scientific' && (
+            <div className="object-key-strip" aria-label="Math object keys">
+              {objectKeys.map((key) => (
+                <button
+                  aria-label={labelForKey(key)}
+                  className={`calc-key ${keyClass(key)}`}
+                  data-key-area={keyArea(key)}
+                  key={key}
+                  onClick={() => handleInput(key)}
+                  type="button"
+                >
+                  {labelForKey(key)}
+                </button>
+              ))}
+            </div>
+          )}
 
-          <div className="keypad" aria-label="Calculator keypad">
+          <div className={`keypad ${calculatorMode}-keypad`} aria-label="Calculator keypad">
             {keys.flat().map((key) => (
               <button
                 aria-label={key === 'backspace' ? 'Backspace' : labelForKey(key)}

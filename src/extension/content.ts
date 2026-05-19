@@ -14,7 +14,7 @@ function buildOverlay(): HTMLDivElement {
     top: '24px',
     right: '24px',
     width: '420px',
-    height: '620px',
+    height: 'min(1240px, calc(100vh - 48px))',
     zIndex: '2147483647',
     display: 'flex',
     flexDirection: 'column',
