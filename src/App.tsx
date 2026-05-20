@@ -106,12 +106,6 @@ type HistoryItem = {
   value: string
 }
 type CalculatorMode = 'basic' | 'scientific'
-type SpiritMood = 'curious' | 'idle' | 'observing' | 'pending'
-type SpiritPrompt = {
-  label: string
-  message: string
-  mood: SpiritMood
-}
 
 type GeometryFieldConfig = {
   key: string
@@ -401,167 +395,6 @@ const formatPoint = (point: Point2D) => `(${formatValue(point.x)}, ${formatValue
 
 const formatPoint3D = (point: Point3D) =>
   `(${formatValue(point.x)}, ${formatValue(point.y)}, ${formatValue(point.z)})`
-
-const getSpiritPrompt = (
-  mathAnalysis: MathAnalysis,
-  expression: string,
-  hasPendingExpression: boolean,
-): SpiritPrompt => {
-  const normalizedExpression = normalizeExpressionForMath(expression)
-  const isIdleExpression = mathAnalysis.kind === 'scalar' && (!normalizedExpression || normalizedExpression === '0')
-
-  if (hasPendingExpression) {
-    return {
-      label: 'listening',
-      message: 'I can feel something forming. Press = when you want me to look at it.',
-      mood: 'pending',
-    }
-  }
-
-  if (isIdleExpression) {
-    return {
-      label: 'drifting',
-      message: 'Give me an expression when you are ready. I will stay with it.',
-      mood: 'idle',
-    }
-  }
-
-  if (mathAnalysis.kind === 'function2d') {
-    if (mathAnalysis.activeRootAnalysis.kind === 'roots') {
-      return {
-        label: 'noticing',
-        message: `This curve touches zero at ${formatRootAnalysis(mathAnalysis.activeRootAnalysis)}.`,
-        mood: 'curious',
-      }
-    }
-
-    if (mathAnalysis.symbolicDerivative) {
-      return {
-        label: 'watching slope',
-        message: `The derivative is ${displayExpression(mathAnalysis.symbolicDerivative)}. Try inspecting different x values.`,
-        mood: 'observing',
-      }
-    }
-
-    return {
-      label: 'observing',
-      message: 'I am watching the shape. Roots, slope, and area are the first clues.',
-      mood: 'observing',
-    }
-  }
-
-  if (mathAnalysis.kind === 'geometry2d' && mathAnalysis.geometry) {
-    const geometry = mathAnalysis.geometry
-    if (geometry.kind === 'circle') {
-      return {
-        label: 'circle thought',
-        message: 'Radius is the lever here. Area grows with the square of it.',
-        mood: 'curious',
-      }
-    }
-
-    if (geometry.kind === 'hyperbola') {
-      return {
-        label: 'hyperbola thought',
-        message: 'The branches chase their asymptotes but never quite settle onto them.',
-        mood: 'curious',
-      }
-    }
-
-    if (geometry.kind === 'segment') {
-      return {
-        label: 'measuring',
-        message: 'A segment is distance, midpoint, and slope all at once.',
-        mood: 'observing',
-      }
-    }
-
-    if (geometry.kind === 'triangle') {
-      return {
-        label: 'triangle thought',
-        message: 'Centroid marks the balance point. Area tells how much plane it claims.',
-        mood: 'curious',
-      }
-    }
-
-    return {
-      label: 'point held',
-      message: 'A point is small, but it can become an anchor for everything else.',
-      mood: 'observing',
-    }
-  }
-
-  if (mathAnalysis.kind === 'primitive3d' && mathAnalysis.primitive3d) {
-    const primitive = mathAnalysis.primitive3d
-    if (primitive.kind === 'sphere') {
-      return {
-        label: 'sphere thought',
-        message: 'Radius drives volume cubically. Small changes become large quickly.',
-        mood: 'curious',
-      }
-    }
-
-    if (primitive.kind === 'plane') {
-      return {
-        label: 'plane thought',
-        message: 'The normal vector tells which way the plane is facing.',
-        mood: 'observing',
-      }
-    }
-
-    if (primitive.kind === 'line3d') {
-      return {
-        label: 'line thought',
-        message: 'Two points determine direction. The unit direction is the line distilled.',
-        mood: 'observing',
-      }
-    }
-
-    return {
-      label: 'solid thought',
-      message: 'Watch which measurement changes fastest as you edit the dimensions.',
-      mood: 'curious',
-    }
-  }
-
-  if (mathAnalysis.kind === 'vector') {
-    return {
-      label: 'vector thought',
-      message: 'A vector carries both length and direction. Components are its shadow on the axes.',
-      mood: 'observing',
-    }
-  }
-
-  if (mathAnalysis.kind === 'complex') {
-    return {
-      label: 'complex thought',
-      message: 'The same number has a rectangular home and an angular home.',
-      mood: 'curious',
-    }
-  }
-
-  if (mathAnalysis.kind === 'surface3d') {
-    return {
-      label: 'surface thought',
-      message: 'This is height over a plane. Orbit helps you feel where it rises and falls.',
-      mood: 'observing',
-    }
-  }
-
-  if (mathAnalysis.kind === 'ratio') {
-    return {
-      label: 'ratio thought',
-      message: 'Division is structure too: whole units, remainder, and proportion.',
-      mood: 'curious',
-    }
-  }
-
-  return {
-    label: 'steady',
-    message: 'Press = when you want this value to become the next object of attention.',
-    mood: 'observing',
-  }
-}
 
 const getFunctionSymbol = (analysisMode: AnalysisMode) => {
   if (analysisMode === 'derivative') {
@@ -2912,10 +2745,6 @@ function App() {
       : mathAnalysis.kind === 'function2d'
         ? getFunctionResultLabel(analysisMode)
         : evaluated.label
-  const spiritPrompt = useMemo(
-    () => getSpiritPrompt(mathAnalysis, committedExpression, hasPendingExpression),
-    [committedExpression, hasPendingExpression, mathAnalysis],
-  )
   const geometryObjectChoices: Array<{
     icon: ReactNode
     kind: GeometryComposerKind
@@ -2942,6 +2771,16 @@ function App() {
             <Sparkles size={16} />
             <span>Hypercalculator</span>
           </div>
+          <button
+            aria-label={canvasVisible ? 'Hide canvas' : 'Show canvas'}
+            aria-pressed={!canvasVisible}
+            className={`canvas-toggle-button ${canvasVisible ? '' : 'active'}`}
+            onClick={() => setCanvasVisible((visible) => !visible)}
+            title={canvasVisible ? 'Hide canvas' : 'Show canvas'}
+            type="button"
+          >
+            {canvasVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
         </header>
 
         {canvasVisible && (
@@ -3023,11 +2862,6 @@ function App() {
             </section>
           </div>
         )}
-
-        <section className={`spirit-message ${spiritPrompt.mood}`} aria-live="polite">
-          <span>{spiritPrompt.label}</span>
-          <p>{spiritPrompt.message}</p>
-        </section>
 
         <section className={`calculator-deck ${calculatorMode}-mode`}>
           <div className={`display-strip ${isDisplayObject || hasPendingExpression ? 'function-display' : ''}`}>
@@ -3141,16 +2975,6 @@ function App() {
               type="button"
             >
               Scientific
-            </button>
-            <button
-              aria-pressed={!canvasVisible}
-              className={canvasVisible ? undefined : 'active'}
-              onClick={() => setCanvasVisible((visible) => !visible)}
-              title={canvasVisible ? 'Hide canvas' : 'Show canvas'}
-              type="button"
-            >
-              {canvasVisible ? <EyeOff size={15} /> : <Eye size={15} />}
-              <span>{canvasVisible ? 'hide canvas' : 'show canvas'}</span>
             </button>
             <button
               className={geometryComposerOpen ? 'active' : undefined}
