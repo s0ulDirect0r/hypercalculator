@@ -1,4 +1,14 @@
-import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  type ChangeEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   Box,
   Circle,
@@ -10,6 +20,7 @@ import {
   Dices,
   Eye,
   EyeOff,
+  GripHorizontal,
   Hash,
   History,
   RotateCcw,
@@ -114,6 +125,12 @@ type GeometryFieldConfig = {
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
+
+const EMBEDDED_VIEWPORT_HEIGHT_STORAGE_KEY = 'hypercalculator.viewportHeight'
+const MIN_EMBEDDED_VIEWPORT_HEIGHT = 180
+const MAX_EMBEDDED_VIEWPORT_HEIGHT = 560
+const isClearShortcut = (event: Pick<KeyboardEvent, 'key' | 'shiftKey'>) =>
+  event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')
 
 const geometryComposerConfig: Record<
   GeometryComposerKind,
@@ -1965,6 +1982,7 @@ function MathViewport({
 
 function App() {
   const initialExpression = formatExpressionInput('0')
+  const isEmbeddedContext = Boolean(document.documentElement.dataset.context)
   const [expression, setExpression] = useState(initialExpression)
   const [committedExpression, setCommittedExpression] = useState(initialExpression)
   const [angleMode, setAngleMode] = useState<AngleMode>('deg')
@@ -1987,8 +2005,19 @@ function App() {
   const [geometryComposerFields, setGeometryComposerFields] = useState<Record<string, string>>(
     () => geometryComposerDefaults.circle,
   )
-  const [expressionFocused, setExpressionFocused] = useState(false)
-  const expressionInputRef = useRef<HTMLInputElement | null>(null)
+  const [entryLineFocused, setEntryLineFocused] = useState(false)
+  const entryInputRef = useRef<HTMLInputElement | null>(null)
+  const [embeddedViewportHeight, setEmbeddedViewportHeight] = useState<number | null>(() => {
+    if (!document.documentElement.dataset.context) {
+      return null
+    }
+
+    const storedHeight = Number(window.localStorage.getItem(EMBEDDED_VIEWPORT_HEIGHT_STORAGE_KEY))
+    return Number.isFinite(storedHeight)
+      ? Math.round(clamp(storedHeight, MIN_EMBEDDED_VIEWPORT_HEIGHT, MAX_EMBEDDED_VIEWPORT_HEIGHT))
+      : null
+  })
+  const [viewportResizePreviewHeight, setViewportResizePreviewHeight] = useState<number | null>(null)
   const [history, setHistory] = useState<HistoryItem[]>([
     { expression: formatExpressionInput('x^2 - 4'), value: 'function' },
     { expression: 'sphere(r=3)', value: 'sphere' },
@@ -2334,6 +2363,13 @@ function App() {
     setLastActionWasEvaluation(false)
   }
 
+  const focusEntryLine = () => {
+    setEntryLineFocused(true)
+    if (lastActionWasEvaluation) {
+      setLastActionWasEvaluation(false)
+    }
+  }
+
   const updateInspectX = useCallback((value: number) => {
     if (!Number.isFinite(value)) {
       return
@@ -2341,6 +2377,69 @@ function App() {
 
     setInspectX(Number(clamp(value, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT).toFixed(2)))
   }, [])
+
+  useEffect(() => {
+    if (!isEmbeddedContext) {
+      return
+    }
+
+    if (embeddedViewportHeight === null) {
+      window.localStorage.removeItem(EMBEDDED_VIEWPORT_HEIGHT_STORAGE_KEY)
+      return
+    }
+
+    window.localStorage.setItem(
+      EMBEDDED_VIEWPORT_HEIGHT_STORAGE_KEY,
+      String(embeddedViewportHeight),
+    )
+  }, [embeddedViewportHeight, isEmbeddedContext])
+
+  const startEmbeddedViewportResize = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (!isEmbeddedContext) {
+        return
+      }
+
+      event.preventDefault()
+      const handle = event.currentTarget
+      const workspace = handle.closest('.workspace')
+      const startHeight =
+        workspace?.getBoundingClientRect().height ?? embeddedViewportHeight ?? 240
+      const startY = event.clientY
+      let nextCommittedHeight = Math.round(startHeight)
+
+      handle.setPointerCapture(event.pointerId)
+      setViewportResizePreviewHeight(nextCommittedHeight)
+
+      const updateHeight = (moveEvent: PointerEvent) => {
+        const maxHeight = Math.max(
+          240,
+          Math.min(MAX_EMBEDDED_VIEWPORT_HEIGHT, window.innerHeight - 180),
+        )
+        const nextHeight = startHeight + moveEvent.clientY - startY
+        nextCommittedHeight = Math.round(
+          clamp(nextHeight, MIN_EMBEDDED_VIEWPORT_HEIGHT, maxHeight),
+        )
+        setViewportResizePreviewHeight(nextCommittedHeight)
+      }
+
+      const stopResize = (endEvent: PointerEvent) => {
+        if (handle.hasPointerCapture(endEvent.pointerId)) {
+          handle.releasePointerCapture(endEvent.pointerId)
+        }
+        setEmbeddedViewportHeight(nextCommittedHeight)
+        setViewportResizePreviewHeight(null)
+        window.removeEventListener('pointermove', updateHeight)
+        window.removeEventListener('pointerup', stopResize)
+        window.removeEventListener('pointercancel', stopResize)
+      }
+
+      window.addEventListener('pointermove', updateHeight)
+      window.addEventListener('pointerup', stopResize)
+      window.addEventListener('pointercancel', stopResize)
+    },
+    [embeddedViewportHeight, isEmbeddedContext],
+  )
 
   const zoomGraph = (direction: 'in' | 'out') => {
     setGraphZoom((value) => {
@@ -2352,6 +2451,10 @@ function App() {
   const commitEvaluation = () => {
     const committed = commitExpression(expression)
     setLastActionWasEvaluation(committed)
+    if (committed) {
+      setEntryLineFocused(false)
+      entryInputRef.current?.blur()
+    }
   }
 
   const getAppendBaseExpression = (current: string, token: string) => {
@@ -2518,6 +2621,14 @@ function App() {
         return
       }
 
+      if (isClearShortcut(event)) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        handleInput('AC')
+        return
+      }
+
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
@@ -2564,13 +2675,13 @@ function App() {
     }
     const onWindowBlur = () => setShiftSecondary(false)
 
-    window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', onWindowBlur)
+    window.addEventListener('keydown', onKeyDown, true)
     return () => {
-      window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onWindowBlur)
+      window.removeEventListener('keydown', onKeyDown, true)
     }
   })
 
@@ -2762,10 +2873,29 @@ function App() {
     { icon: <Square size={15} />, kind: 'plane' },
   ]
   const geometryComposerFieldsForKind = geometryComposerConfig[geometryComposerKind].fields
+  const entryLineValue =
+    lastActionWasEvaluation && !entryLineFocused && evaluated.valid && !hasPendingExpression
+      ? resultLabel
+      : expression
+  const embeddedViewportStyle =
+    isEmbeddedContext && (embeddedViewportHeight !== null || viewportResizePreviewHeight !== null)
+      ? ({
+          ...(embeddedViewportHeight !== null
+            ? { '--user-viewport-height': `${embeddedViewportHeight}px` }
+            : {}),
+          ...(viewportResizePreviewHeight !== null
+            ? { '--resize-preview-height': `${viewportResizePreviewHeight}px` }
+            : {}),
+        } as CSSProperties)
+      : undefined
 
   return (
     <main className="app-shell">
-      <section className={`hyper-window ${canvasVisible ? '' : 'canvas-hidden'}`} aria-label="Hypercalculator">
+      <section
+        className={`hyper-window ${canvasVisible ? '' : 'canvas-hidden'}`}
+        style={embeddedViewportStyle}
+        aria-label="Hypercalculator"
+      >
         <header className="window-bar">
           <div className="window-title">
             <Sparkles size={16} />
@@ -2785,7 +2915,7 @@ function App() {
 
         {canvasVisible && (
           <div className="workspace">
-            <section className="visual-panel">
+            <section className={`visual-panel ${viewportResizePreviewHeight === null ? '' : 'resizing'}`}>
               <MathViewport
                 analysisMode={analysisMode}
                 angleMode={angleMode}
@@ -2859,33 +2989,61 @@ function App() {
                   ))}
                 </div>
               )}
+              {isEmbeddedContext && (
+                <button
+                  aria-label="Resize graph viewport"
+                  className="viewport-resize-handle"
+                  onDoubleClick={() => setEmbeddedViewportHeight(null)}
+                  onPointerDown={startEmbeddedViewportResize}
+                  title="Drag to resize graph. Double-click to reset."
+                  type="button"
+                >
+                  <GripHorizontal size={18} />
+                </button>
+              )}
+              {viewportResizePreviewHeight !== null && (
+                <div className="viewport-resize-preview" aria-hidden="true">
+                  <span>{viewportResizePreviewHeight}px</span>
+                </div>
+              )}
             </section>
           </div>
         )}
 
         <section className={`calculator-deck ${calculatorMode}-mode`}>
           <div className={`display-strip ${isDisplayObject || hasPendingExpression ? 'function-display' : ''}`}>
+            <div className="expression-display" aria-label="Expression display">
+              {renderMathExpression(committedExpression)}
+            </div>
             <div
-              className={`expression-editor ${expressionFocused ? 'editing' : 'rendered'}`}
-              onClick={() => expressionInputRef.current?.focus()}
+              className={`entry-line ${entryLineFocused ? 'editing' : 'rendered'} ${
+                evaluated.valid || hasPendingExpression ? '' : 'error'
+              }`}
+              onClick={() => entryInputRef.current?.focus()}
             >
               <input
-                aria-label="Expression"
-                className="expression-input"
-                onBlur={() => setExpressionFocused(false)}
+                aria-label="Entry line"
+                className="entry-input"
+                onBlur={() => setEntryLineFocused(false)}
                 onChange={handleExpressionChange}
-                onFocus={() => setExpressionFocused(true)}
+                onFocus={focusEntryLine}
                 onKeyDown={(event) => {
+                  if (isClearShortcut(event.nativeEvent)) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    handleInput('AC')
+                    return
+                  }
                   if (event.key === 'Enter') {
                     commitEvaluation()
                   }
                 }}
-                ref={expressionInputRef}
+                ref={entryInputRef}
                 spellCheck={false}
-                value={expression}
+                value={entryLineValue}
               />
-              <div className="expression-render" aria-hidden="true">
-                {renderMathExpression(expression)}
+              <div className="entry-render" aria-hidden="true">
+                {renderMathExpression(entryLineValue)}
               </div>
             </div>
             {mathAnalysis.kind === 'function2d' && analysisMode !== 'function' && (
@@ -2902,9 +3060,6 @@ function App() {
                 <strong>{formatRootAnalysis(mathAnalysis.activeRootAnalysis)}</strong>
               </div>
             )}
-            <div className={evaluated.valid || hasPendingExpression ? 'result-line' : 'result-line error'}>
-              {resultLabel}
-            </div>
           </div>
 
           {geometryComposerOpen && (
