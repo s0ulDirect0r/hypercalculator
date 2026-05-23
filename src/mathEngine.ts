@@ -351,6 +351,21 @@ export const formatValue = (value: unknown) => {
   }).format(numeric)
 }
 
+export const formatNumberForExpression = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return String(value)
+  }
+
+  const numeric = Object.is(value, -0) ? 0 : value
+
+  return numeric
+    .toPrecision(12)
+    .replace(/\.?0+(?=e)/i, '')
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '')
+    .replace('e+', 'e')
+}
+
 export const buildScope = (angleMode: AngleMode, extraScope: Record<string, number> = {}) => {
   const toRadians = (value: number) => (angleMode === 'deg' ? (value * Math.PI) / 180 : value)
   const fromRadians = (value: number) => (angleMode === 'deg' ? (value * 180) / Math.PI : value)

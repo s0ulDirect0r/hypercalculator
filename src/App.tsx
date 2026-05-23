@@ -87,6 +87,7 @@ import {
   evaluateRawForPoint,
   formatExpressionForDisplay,
   formatExpressionInput,
+  formatNumberForExpression,
   formatRootAnalysis,
   formatValue,
   insertPercent,
@@ -2464,7 +2465,7 @@ function App() {
       evaluated.numeric !== null &&
       Number.isFinite(evaluated.numeric)
     ) {
-      return String(evaluated.numeric)
+      return formatNumberForExpression(evaluated.numeric)
     }
 
     if (lastActionWasEvaluation && !shouldContinueEvaluatedResult(token)) {
@@ -2473,6 +2474,11 @@ function App() {
 
     return current
   }
+
+  const getEvaluatedNumberExpression = (current: string) =>
+    lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
+      ? formatNumberForExpression(evaluated.numeric)
+      : current
 
   const handleInput = (token: string) => {
     switch (token) {
@@ -2514,28 +2520,21 @@ function App() {
         }
         return
       case 'mr':
-        setExpression((current) =>
-          appendToken(getAppendBaseExpression(current, String(memory)), String(memory)),
-        )
+        setExpression((current) => {
+          const memoryExpression = formatNumberForExpression(memory)
+          return appendToken(getAppendBaseExpression(current, memoryExpression), memoryExpression)
+        })
         setLastActionWasEvaluation(false)
         return
       case '%':
         setExpression((current) => {
-          const baseExpression =
-            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
-              ? String(evaluated.numeric)
-              : current
-          return insertPercent(baseExpression)
+          return insertPercent(getEvaluatedNumberExpression(current))
         })
         setLastActionWasEvaluation(false)
         return
       case '+/-':
         setExpression((current) => {
-          const baseExpression =
-            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
-              ? String(evaluated.numeric)
-              : current
-          return toggleSign(baseExpression)
+          return toggleSign(getEvaluatedNumberExpression(current))
         })
         setLastActionWasEvaluation(false)
         return
@@ -2545,10 +2544,7 @@ function App() {
         return
       case 'reciprocal':
         setExpression((current) => {
-          const baseExpression =
-            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
-              ? String(evaluated.numeric)
-              : current
+          const baseExpression = getEvaluatedNumberExpression(current)
           const normalized = baseExpression.trim()
           const nextExpression = normalized && normalized !== '0' ? `1/(${normalized})` : '1/('
           return nextExpression
@@ -2557,30 +2553,21 @@ function App() {
         return
       case 'sqrt(':
         setExpression((current) => {
-          const baseExpression =
-            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
-              ? String(evaluated.numeric)
-              : current
+          const baseExpression = getEvaluatedNumberExpression(current)
           return encloseExpressionInFunction(baseExpression, 'sqrt')
         })
         setLastActionWasEvaluation(false)
         return
       case 'cbrt(':
         setExpression((current) => {
-          const baseExpression =
-            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
-              ? String(evaluated.numeric)
-              : current
+          const baseExpression = getEvaluatedNumberExpression(current)
           return encloseExpressionInFunction(baseExpression, 'cbrt')
         })
         setLastActionWasEvaluation(false)
         return
       case 'nthRoot(':
         setExpression((current) => {
-          const baseExpression =
-            lastActionWasEvaluation && evaluated.numeric !== null && Number.isFinite(evaluated.numeric)
-              ? String(evaluated.numeric)
-              : current
+          const baseExpression = getEvaluatedNumberExpression(current)
           return encloseExpressionInFunction(baseExpression, 'nthRoot', {
             closeExpression: false,
             suffix: ', ',

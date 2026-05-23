@@ -4,6 +4,7 @@ import {
   encloseExpressionInFunction,
   evaluateNumeric,
   formatExpressionInput,
+  formatNumberForExpression,
   makeAnalysis,
   normalizeExpressionForMath,
   parseComplex,
@@ -36,6 +37,12 @@ describe('math engine expression handling', () => {
     expectNumber(tryEvaluate('-2^2', 'rad'), -4)
     expectNumber(tryEvaluate('2^-3', 'rad'), 0.125)
     expectNumber(tryEvaluate('5!', 'rad'), 120)
+  })
+
+  it('formats evaluated numbers for continued expression input without float residue', () => {
+    expect(formatNumberForExpression(Number(tryEvaluate('0.08 * 0.036', 'rad')))).toBe('0.00288')
+    expect(formatNumberForExpression(Number(tryEvaluate('0.08 * 0.275', 'rad')))).toBe('0.022')
+    expect(formatNumberForExpression(Number(tryEvaluate('0.3 - 0.1', 'rad')))).toBe('0.2')
   })
 
   it('evaluates calculator functions and angle modes', () => {
