@@ -2997,7 +2997,7 @@ function App() {
           </div>
         )}
 
-        <section className={`calculator-deck ${calculatorMode}-mode`}>
+        <section className={`calculator-deck ${calculatorMode}-mode ${historyOpen ? 'history-open' : ''}`}>
           <div className={`display-strip ${isDisplayObject || hasPendingExpression ? 'function-display' : ''}`}>
             <div className="expression-display" aria-label="Expression display">
               {renderMathExpression(committedExpression)}
@@ -3049,7 +3049,7 @@ function App() {
             )}
           </div>
 
-          {geometryComposerOpen && (
+          {calculatorMode === 'scientific' && geometryComposerOpen && (
             <div className="geometry-composer" aria-label="Geometry composer">
               <div className="geometry-kind-strip" role="tablist" aria-label="Geometry object types">
                 {geometryObjectChoices.map(({ icon, kind }) => {
@@ -3119,7 +3119,7 @@ function App() {
               Scientific
             </button>
             <button
-              className={geometryComposerOpen ? 'active' : undefined}
+              className={`advanced-control ${geometryComposerOpen ? 'active' : ''}`}
               onClick={() => setGeometryComposerOpen((open) => !open)}
               type="button"
             >
@@ -3127,7 +3127,9 @@ function App() {
               <span>geometry</span>
             </button>
             <button
-              className={visualizationMode === 'fx' && analysisMode === 'function' ? 'active' : undefined}
+              className={`advanced-control ${
+                visualizationMode === 'fx' && analysisMode === 'function' ? 'active' : ''
+              }`}
               onClick={() => {
                 setVisualizationMode((mode) => (mode === 'fx' ? 'auto' : 'fx'))
                 setAnalysisMode('function')
@@ -3137,7 +3139,7 @@ function App() {
               f(x)
             </button>
             <button
-              className={analysisMode === 'derivative' ? 'active' : undefined}
+              className={`advanced-control ${analysisMode === 'derivative' ? 'active' : ''}`}
               onClick={() => {
                 setVisualizationMode('fx')
                 setAnalysisMode('derivative')
@@ -3147,7 +3149,7 @@ function App() {
               f′(x)
             </button>
             <button
-              className={analysisMode === 'integral' ? 'active' : undefined}
+              className={`advanced-control ${analysisMode === 'integral' ? 'active' : ''}`}
               onClick={() => {
                 setVisualizationMode('fx')
                 setAnalysisMode('integral')
@@ -3157,7 +3159,7 @@ function App() {
               ∫f
             </button>
             <button
-              className={visualizationMode === 'fxy' ? 'active' : undefined}
+              className={`advanced-control ${visualizationMode === 'fxy' ? 'active' : ''}`}
               onClick={() => {
                 setVisualizationMode((mode) => (mode === 'fxy' ? 'auto' : 'fxy'))
                 setAnalysisMode('function')
@@ -3167,7 +3169,7 @@ function App() {
               f(x,y)
             </button>
             <button
-              className={orbitEnabled ? 'active' : undefined}
+              className={`advanced-control ${orbitEnabled ? 'active' : ''}`}
               onClick={() => setOrbitEnabled((value) => !value)}
               type="button"
             >
