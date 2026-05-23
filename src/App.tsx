@@ -23,8 +23,10 @@ import {
   GripHorizontal,
   Hash,
   History,
+  Info,
   RotateCcw,
   Shapes,
+  SlidersHorizontal,
   Sparkles,
   Spline,
   Square,
@@ -1991,7 +1993,7 @@ function App() {
   const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('auto')
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('function')
   const [axisValuesVisible, setAxisValuesVisible] = useState(true)
-  const [canvasVisible, setCanvasVisible] = useState(true)
+  const [canvasVisible, setCanvasVisible] = useState(false)
   const [graphZoom, setGraphZoom] = useState(1)
   const [inspectX, setInspectX] = useState(1)
   const [orbitEnabled, setOrbitEnabled] = useState(false)
@@ -2000,6 +2002,8 @@ function App() {
   const [shiftSecondary, setShiftSecondary] = useState(false)
   const [lastActionWasEvaluation, setLastActionWasEvaluation] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [viewportControlsOpen, setViewportControlsOpen] = useState(() => window.innerWidth > 760)
+  const [viewportInspectorOpen, setViewportInspectorOpen] = useState(() => window.innerWidth > 760)
   const [geometryComposerOpen, setGeometryComposerOpen] = useState(false)
   const [geometryComposerKind, setGeometryComposerKind] =
     useState<GeometryComposerKind>('circle')
@@ -2315,6 +2319,10 @@ function App() {
     setLastActionWasEvaluation(false)
 
     if (nextEvaluation.valid) {
+      if (isDisplayMathKind(nextAnalysis.kind)) {
+        setCanvasVisible(true)
+      }
+
       setHistory((items) =>
         [{ expression: nextExpression, value: nextEvaluation.label }, ...items].slice(0, 7),
       )
@@ -2331,6 +2339,7 @@ function App() {
   }
 
   const commitGeometryExpression = () => {
+    setCanvasVisible(true)
     commitExpression(buildGeometryExpression(geometryComposerKind, geometryComposerFields), {
       nextAnalysisMode: 'function',
       nextVisualizationMode: 'auto',
@@ -2377,6 +2386,19 @@ function App() {
     }
 
     setInspectX(Number(clamp(value, -MAX_GRAPH_EXTENT, MAX_GRAPH_EXTENT).toFixed(2)))
+  }, [])
+
+  useEffect(() => {
+    const compactViewportQuery = window.matchMedia('(max-width: 760px)')
+    const syncViewportOverlayDefaults = (query: Pick<MediaQueryList, 'matches'>) => {
+      const shouldOpenOverlays = !query.matches
+      setViewportControlsOpen(shouldOpenOverlays)
+      setViewportInspectorOpen(shouldOpenOverlays)
+    }
+
+    syncViewportOverlayDefaults(compactViewportQuery)
+    compactViewportQuery.addEventListener('change', syncViewportOverlayDefaults)
+    return () => compactViewportQuery.removeEventListener('change', syncViewportOverlayDefaults)
   }, [])
 
   useEffect(() => {
@@ -2576,21 +2598,27 @@ function App() {
         setLastActionWasEvaluation(false)
         return
       case 'sample-function':
+        setCanvasVisible(true)
         commitExpression('x^2 - 4', { nextAnalysisMode: 'function', nextVisualizationMode: 'fx' })
         return
       case 'sample-derivative':
+        setCanvasVisible(true)
         commitExpression('x^3 - 3x', { nextAnalysisMode: 'derivative', nextVisualizationMode: 'fx' })
         return
       case 'sample-integral':
+        setCanvasVisible(true)
         commitExpression('sin(x)', { nextAnalysisMode: 'integral', nextVisualizationMode: 'fx' })
         return
       case 'sample-vector':
+        setCanvasVisible(true)
         commitExpression('<3, 4>', { nextAnalysisMode: 'function', nextVisualizationMode: 'auto' })
         return
       case 'sample-complex':
+        setCanvasVisible(true)
         commitExpression('3 + 4i', { nextAnalysisMode: 'function', nextVisualizationMode: 'auto' })
         return
       case 'sample-surface':
+        setCanvasVisible(true)
         commitExpression('sin(x) * cos(y)', { nextAnalysisMode: 'function', nextVisualizationMode: 'fxy' })
         return
       default:
@@ -2831,6 +2859,7 @@ function App() {
       : mathAnalysis.kind === 'primitive3d'
         ? analysisRows.slice(1, 5)
         : []
+  const hasViewportInspector = mathAnalysis.kind === 'function2d' || geometryViewportRows.length > 0
   const activeTransformExpression =
     analysisMode === 'derivative'
       ? mathAnalysis.symbolicDerivative
@@ -2889,11 +2918,11 @@ function App() {
             <span>Hypercalculator</span>
           </div>
           <button
-            aria-label={canvasVisible ? 'Hide canvas' : 'Show canvas'}
-            aria-pressed={!canvasVisible}
-            className={`canvas-toggle-button ${canvasVisible ? '' : 'active'}`}
+            aria-label={canvasVisible ? 'Hide visualizer' : 'Show visualizer'}
+            aria-pressed={canvasVisible}
+            className={`canvas-toggle-button ${canvasVisible ? 'active' : ''}`}
             onClick={() => setCanvasVisible((visible) => !visible)}
-            title={canvasVisible ? 'Hide canvas' : 'Show canvas'}
+            title={canvasVisible ? 'Hide visualizer' : 'Show visualizer'}
             type="button"
           >
             {canvasVisible ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -2916,43 +2945,74 @@ function App() {
                 orbitEnabled={orbitEnabled}
               />
               {hasViewportControls && (
-                <div className="viewport-controls" aria-label="Graph display controls">
+                <>
                   <button
-                    className={axisValuesVisible ? 'active' : undefined}
-                    onClick={() => setAxisValuesVisible((visible) => !visible)}
-                    title="Toggle axis values"
+                    aria-label={viewportControlsOpen ? 'Hide graph controls' : 'Show graph controls'}
+                    aria-pressed={viewportControlsOpen}
+                    className={`viewport-overlay-toggle viewport-controls-toggle ${
+                      viewportControlsOpen ? 'active' : ''
+                    }`}
+                    onClick={() => setViewportControlsOpen((open) => !open)}
+                    title={viewportControlsOpen ? 'Hide graph controls' : 'Show graph controls'}
                     type="button"
                   >
-                    <Hash size={15} />
-                    <span>values</span>
+                    <SlidersHorizontal size={15} />
                   </button>
-                  <button
-                    aria-label="Zoom graph out"
-                    onClick={() => zoomGraph('out')}
-                    title="Zoom out"
-                    type="button"
-                  >
-                    <ZoomOut size={15} />
-                  </button>
-                  <button
-                    aria-label="Reset graph zoom"
-                    onClick={() => setGraphZoom(1)}
-                    title="Reset zoom"
-                    type="button"
-                  >
-                    {Math.round(graphZoom * 100)}%
-                  </button>
-                  <button
-                    aria-label="Zoom graph in"
-                    onClick={() => zoomGraph('in')}
-                    title="Zoom in"
-                    type="button"
-                  >
-                    <ZoomIn size={15} />
-                  </button>
-                </div>
+                  {viewportControlsOpen && (
+                    <div className="viewport-controls" aria-label="Graph display controls">
+                      <button
+                        className={axisValuesVisible ? 'active' : undefined}
+                        onClick={() => setAxisValuesVisible((visible) => !visible)}
+                        title="Toggle axis values"
+                        type="button"
+                      >
+                        <Hash size={15} />
+                        <span>values</span>
+                      </button>
+                      <button
+                        aria-label="Zoom graph out"
+                        onClick={() => zoomGraph('out')}
+                        title="Zoom out"
+                        type="button"
+                      >
+                        <ZoomOut size={15} />
+                      </button>
+                      <button
+                        aria-label="Reset graph zoom"
+                        className="zoom-reset-button"
+                        onClick={() => setGraphZoom(1)}
+                        title="Reset zoom"
+                        type="button"
+                      >
+                        {Math.round(graphZoom * 100)}%
+                      </button>
+                      <button
+                        aria-label="Zoom graph in"
+                        onClick={() => zoomGraph('in')}
+                        title="Zoom in"
+                        type="button"
+                      >
+                        <ZoomIn size={15} />
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
-              {mathAnalysis.kind === 'function2d' && (
+              {hasViewportInspector && (
+                <button
+                  aria-label={viewportInspectorOpen ? 'Hide graph inspector' : 'Show graph inspector'}
+                  aria-pressed={viewportInspectorOpen}
+                  className={`viewport-overlay-toggle viewport-inspector-toggle ${
+                    viewportInspectorOpen ? 'active' : ''
+                  }`}
+                  onClick={() => setViewportInspectorOpen((open) => !open)}
+                  title={viewportInspectorOpen ? 'Hide graph inspector' : 'Show graph inspector'}
+                  type="button"
+                >
+                  <Info size={15} />
+                </button>
+              )}
+              {mathAnalysis.kind === 'function2d' && viewportInspectorOpen && (
                 <div className="viewport-inspector">
                   <span>inspect x</span>
                   <strong>{formatValue(inspectX)}</strong>
@@ -2966,7 +3026,7 @@ function App() {
                   )}
                 </div>
               )}
-              {geometryViewportRows.length > 0 && (
+              {geometryViewportRows.length > 0 && viewportInspectorOpen && (
                 <div className="viewport-inspector">
                   {geometryViewportRows.map(([label, value]) => (
                     <span className="viewport-inspector-row" key={label}>
@@ -3120,7 +3180,10 @@ function App() {
             </button>
             <button
               className={`advanced-control ${geometryComposerOpen ? 'active' : ''}`}
-              onClick={() => setGeometryComposerOpen((open) => !open)}
+              onClick={() => {
+                setCanvasVisible(true)
+                setGeometryComposerOpen((open) => !open)
+              }}
               type="button"
             >
               <Shapes size={15} />
@@ -3131,6 +3194,7 @@ function App() {
                 visualizationMode === 'fx' && analysisMode === 'function' ? 'active' : ''
               }`}
               onClick={() => {
+                setCanvasVisible(true)
                 setVisualizationMode((mode) => (mode === 'fx' ? 'auto' : 'fx'))
                 setAnalysisMode('function')
               }}
@@ -3141,6 +3205,7 @@ function App() {
             <button
               className={`advanced-control ${analysisMode === 'derivative' ? 'active' : ''}`}
               onClick={() => {
+                setCanvasVisible(true)
                 setVisualizationMode('fx')
                 setAnalysisMode('derivative')
               }}
@@ -3151,6 +3216,7 @@ function App() {
             <button
               className={`advanced-control ${analysisMode === 'integral' ? 'active' : ''}`}
               onClick={() => {
+                setCanvasVisible(true)
                 setVisualizationMode('fx')
                 setAnalysisMode('integral')
               }}
@@ -3161,6 +3227,7 @@ function App() {
             <button
               className={`advanced-control ${visualizationMode === 'fxy' ? 'active' : ''}`}
               onClick={() => {
+                setCanvasVisible(true)
                 setVisualizationMode((mode) => (mode === 'fxy' ? 'auto' : 'fxy'))
                 setAnalysisMode('function')
               }}
@@ -3170,7 +3237,10 @@ function App() {
             </button>
             <button
               className={`advanced-control ${orbitEnabled ? 'active' : ''}`}
-              onClick={() => setOrbitEnabled((value) => !value)}
+              onClick={() => {
+                setCanvasVisible(true)
+                setOrbitEnabled((value) => !value)
+              }}
               type="button"
             >
               orbit
