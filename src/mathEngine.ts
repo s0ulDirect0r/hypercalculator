@@ -298,7 +298,7 @@ export const formatExpressionForDisplay = (expression: string, divideSymbol: '/'
     .replaceAll('sqrt', '√')
     .replace(/\bpi\b/g, 'π')
     .replaceAll('*', '×')
-    .replace(/(?<=[0-9πe)])×(?=[xytπe√(])/g, '')
+    .replace(/(?<=[0-9πe)])×(?=[xytπe√])/g, '')
     .replace(/(?<=[xyt])×(?=\()/g, '')
     .replaceAll('/', divideSymbol)
 

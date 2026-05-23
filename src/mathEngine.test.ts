@@ -11,6 +11,7 @@ import {
   parseSimpleDivision,
   parseVector,
   tryEvaluate,
+  displayExpression,
 } from './mathEngine'
 
 const expectNumber = (value: unknown, expected: number) => {
@@ -33,6 +34,8 @@ describe('math engine expression handling', () => {
   it('respects standard order of operations during evaluation', () => {
     expectNumber(tryEvaluate('2 + 3 * 4', 'rad'), 14)
     expectNumber(tryEvaluate('(2 + 3) * 4', 'rad'), 20)
+    expectNumber(tryEvaluate('2 * (3 + 4)', 'rad'), 14)
+    expect(displayExpression('2 * (3 + 4)')).toBe('2 × (3 + 4)')
     expectNumber(tryEvaluate('10 - 6 / 3 + 2^3', 'rad'), 16)
     expectNumber(tryEvaluate('-2^2', 'rad'), -4)
     expectNumber(tryEvaluate('2^-3', 'rad'), 0.125)
