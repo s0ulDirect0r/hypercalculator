@@ -1132,6 +1132,7 @@ export const appendToken = (expression: string, token: string) => {
   const currentExpression = expression.trim() || '0'
   const lastCharacter = currentExpression.at(-1) ?? ''
   const tokenIsBinaryOperator = ['+', '-', '*', '/'].includes(token)
+  const tokenIsPostfixPower = ['^2', '^3'].includes(token)
   const tokenStartsExpression =
     /^\d/.test(token) || /^[A-Za-z<[]/.test(token) || token === '(' || token === '-'
 
@@ -1169,6 +1170,14 @@ export const appendToken = (expression: string, token: string) => {
 
   if (currentExpression === '0' && tokenStartsExpression) {
     return token
+  }
+
+  if (tokenIsPostfixPower) {
+    const { end, start } = getCurrentTermBounds(currentExpression)
+    const currentTerm = currentExpression.slice(start, end)
+    if (currentTerm.startsWith('-')) {
+      return `${currentExpression.slice(0, start)}(${currentTerm})${token}${currentExpression.slice(end)}`
+    }
   }
 
   return `${currentExpression}${token}`

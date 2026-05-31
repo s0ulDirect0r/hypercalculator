@@ -61,6 +61,9 @@ describe('math engine expression handling', () => {
     expect(appendToken('7+', '.')).toBe('7+0.')
     expect(appendToken('7.2', '.')).toBe('7.2')
     expect(appendToken('x', '^2')).toBe('x^2')
+    expect(appendToken('-18', '^2')).toBe('(-18)^2')
+    expectNumber(tryEvaluate(appendToken('-18', '^2'), 'rad'), 324)
+    expect(appendToken('2*-18', '^2')).toBe('2*(-18)^2')
   })
 
   it('wraps the current term when applying a root function', () => {
