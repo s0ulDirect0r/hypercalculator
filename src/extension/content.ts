@@ -1,37 +1,20 @@
 // Content script. Imports nothing so Rollup emits it as one standalone file.
-// Injects a draggable floating calculator (an iframe, for full CSS isolation
-// from the host page) and toggles it on a message from the service worker.
+// Injects an iframe calculator surface, either as a draggable overlay or as an
+// in-page side-panel fallback for browsers that do not expose chrome.sidePanel.
 
 const CONTAINER_ID = 'hypercalculator-overlay-root'
 
 let container: HTMLDivElement | null = null
+let activeMode: 'overlay' | 'sidepanel' | null = null
 
-function buildOverlay(): HTMLDivElement {
-  const root = document.createElement('div')
-  root.id = CONTAINER_ID
-  Object.assign(root.style, {
-    position: 'fixed',
-    top: '24px',
-    right: '24px',
-    width: '420px',
-    height: 'min(1240px, calc(100vh - 48px))',
-    zIndex: '2147483647',
-    display: 'flex',
-    flexDirection: 'column',
-    borderRadius: '14px',
-    overflow: 'hidden',
-    boxShadow: '0 24px 70px rgba(0, 0, 0, 0.6)',
-    background: '#050607',
-    border: '1px solid rgba(126, 238, 255, 0.25)',
-  } satisfies Partial<CSSStyleDeclaration>)
-
+function makeHeader(cursor: string): HTMLDivElement {
   const header = document.createElement('div')
   Object.assign(header.style, {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '6px 6px 6px 12px',
-    cursor: 'move',
+    cursor,
     userSelect: 'none',
     font: "600 12px/1.4 system-ui, -apple-system, Segoe UI, sans-serif",
     letterSpacing: '0.08em',
@@ -60,19 +43,66 @@ function buildOverlay(): HTMLDivElement {
   close.addEventListener('click', hideOverlay)
 
   header.append(title, close)
+  return header
+}
 
+function makeFrame(context: 'overlay' | 'sidepanel'): HTMLIFrameElement {
   const frame = document.createElement('iframe')
-  frame.src = chrome.runtime.getURL('index.html?context=overlay')
+  frame.src = chrome.runtime.getURL(`index.html?context=${context}`)
   frame.title = 'Hypercalculator'
   Object.assign(frame.style, {
     flex: '1',
     width: '100%',
     border: '0',
   } satisfies Partial<CSSStyleDeclaration>)
+  return frame
+}
 
+function buildOverlay(mode: 'overlay' | 'sidepanel'): HTMLDivElement {
+  const root = document.createElement('div')
+  root.id = CONTAINER_ID
+  applyContainerMode(root, mode)
+
+  const header = makeHeader(mode === 'overlay' ? 'move' : 'default')
+  const frame = makeFrame(mode)
   root.append(header, frame)
-  enableDrag(root, header, frame)
+  if (mode === 'overlay') enableDrag(root, header, frame)
   return root
+}
+
+function applyContainerMode(root: HTMLDivElement, mode: 'overlay' | 'sidepanel') {
+  activeMode = mode
+  const baseStyles: Partial<CSSStyleDeclaration> = {
+    position: 'fixed',
+    zIndex: '2147483647',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    boxShadow: '0 24px 70px rgba(0, 0, 0, 0.6)',
+    background: '#050607',
+    border: '1px solid rgba(126, 238, 255, 0.25)',
+  }
+  const modeStyles: Partial<CSSStyleDeclaration> =
+    mode === 'overlay'
+      ? {
+          top: '24px',
+          right: '24px',
+          left: 'auto',
+          bottom: 'auto',
+          width: '420px',
+          height: 'min(1240px, calc(100vh - 48px))',
+          borderRadius: '14px',
+        }
+      : {
+          top: '0',
+          right: '0',
+          left: 'auto',
+          bottom: '0',
+          width: 'min(420px, 100vw)',
+          height: '100vh',
+          borderRadius: '0',
+        }
+  Object.assign(root.style, baseStyles, modeStyles)
 }
 
 function enableDrag(root: HTMLDivElement, handle: HTMLElement, frame: HTMLIFrameElement) {
@@ -122,9 +152,10 @@ function hideOverlay() {
   if (container) container.style.display = 'none'
 }
 
-function toggleOverlay() {
-  if (!container) {
-    container = buildOverlay()
+function toggleOverlay(mode: 'overlay' | 'sidepanel') {
+  if (!container || activeMode !== mode) {
+    if (container) container.remove()
+    container = buildOverlay(mode)
     document.body.appendChild(container)
     return
   }
@@ -132,13 +163,14 @@ function toggleOverlay() {
 }
 
 // The service worker injects this script on demand — with activeTab there is no
-// declarative content script, so every appearance of the overlay starts here.
+// declarative content script, so every in-page extension surface starts here.
 // Guard the listener so a script injected more than once never registers
 // duplicate listeners and toggles the overlay twice per command.
 const overlayWindow = window as typeof window & { hypercalculatorOverlayBound?: boolean }
 if (!overlayWindow.hypercalculatorOverlayBound) {
   overlayWindow.hypercalculatorOverlayBound = true
   chrome.runtime.onMessage.addListener((message: { type?: string }) => {
-    if (message?.type === 'TOGGLE_OVERLAY') toggleOverlay()
+    if (message?.type === 'TOGGLE_OVERLAY') toggleOverlay('overlay')
+    if (message?.type === 'TOGGLE_SIDE_PANEL') toggleOverlay('sidepanel')
   })
 }

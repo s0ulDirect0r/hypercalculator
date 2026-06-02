@@ -1,12 +1,24 @@
 // MV3 service worker. Imports nothing so Rollup emits it as one standalone file.
 
 const OVERLAY_MENU_ID = 'hypercalculator-toggle-overlay'
+type PanelMessageType = 'TOGGLE_OVERLAY' | 'TOGGLE_SIDE_PANEL'
+
+function getSidePanelApi(): Partial<typeof chrome.sidePanel> | undefined {
+  return chrome.sidePanel as Partial<typeof chrome.sidePanel> | undefined
+}
 
 chrome.runtime.onInstalled.addListener(() => {
-  // Clicking the toolbar icon opens the side panel.
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error('Hypercalculator: setPanelBehavior failed', error))
+  // Clicking the toolbar icon opens the side panel when the browser supports
+  // Chrome's sidePanel API. Arc accepts Chrome extensions but does not expose
+  // that API, so fall back to an in-page side panel instead of aborting setup.
+  const sidePanel = getSidePanelApi()
+  if (typeof sidePanel?.setPanelBehavior === 'function') {
+    sidePanel
+      .setPanelBehavior({ openPanelOnActionClick: true })
+      .catch((error) => console.error('Hypercalculator: setPanelBehavior failed', error))
+  } else {
+    void chrome.action.setTitle({ title: 'Hypercalculator — click to open side panel' })
+  }
 
   chrome.contextMenus.create({
     id: OVERLAY_MENU_ID,
@@ -36,30 +48,36 @@ function flashUnsupportedBadge(tabId: number) {
   }, 4000)
 }
 
-// Toggle the floating overlay. The extension uses activeTab rather than a broad
-// host permission, so there is no declarative content script: the first toggle
-// on a page always fails the sendMessage and falls through to inject content.js
-// on demand. Both overlay entry points — the toggle-overlay command and the
-// context-menu click — count as invocations that grant activeTab, so the
-// executeScript is allowed. Every toggle after that reaches the now-present
-// content script directly via sendMessage.
-async function toggleOverlay(tabId: number) {
+// Toggle an in-page extension surface. The extension uses activeTab rather than
+// a broad host permission, so there is no declarative content script: the first
+// toggle on a page always fails the sendMessage and falls through to inject
+// content.js on demand. Every toggle after that reaches the now-present content
+// script directly via sendMessage.
+async function toggleInPageSurface(tabId: number, type: PanelMessageType) {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_OVERLAY' })
+    await chrome.tabs.sendMessage(tabId, { type })
   } catch {
     try {
       await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] })
-      await chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_OVERLAY' })
+      await chrome.tabs.sendMessage(tabId, { type })
     } catch (error) {
-      console.error('Hypercalculator: cannot show overlay on this page', error)
+      console.error('Hypercalculator: cannot show calculator on this page', error)
       flashUnsupportedBadge(tabId)
     }
   }
 }
 
+function toggleOverlay(tabId: number) {
+  void toggleInPageSurface(tabId, 'TOGGLE_OVERLAY')
+}
+
+function toggleSidePanelFallback(tabId: number) {
+  void toggleInPageSurface(tabId, 'TOGGLE_SIDE_PANEL')
+}
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === OVERLAY_MENU_ID && tab?.id !== undefined) {
-    void toggleOverlay(tab.id)
+    toggleOverlay(tab.id)
   }
 })
 
@@ -75,9 +93,18 @@ function openSidePanel(tab?: chrome.tabs.Tab) {
     console.error('Hypercalculator: no window to open the side panel in')
     return
   }
-  chrome.sidePanel
-    .open({ windowId: tab.windowId })
-    .catch((error) => console.error('Hypercalculator: cannot open side panel', error))
+  const sidePanel = getSidePanelApi()
+  if (typeof sidePanel?.open === 'function') {
+    sidePanel
+      .open({ windowId: tab.windowId })
+      .catch((error) => console.error('Hypercalculator: cannot open side panel', error))
+    return
+  }
+  if (tab.id !== undefined) toggleSidePanelFallback(tab.id)
+}
+
+if (typeof getSidePanelApi()?.setPanelBehavior !== 'function') {
+  chrome.action.onClicked.addListener(openSidePanel)
 }
 
 chrome.commands.onCommand.addListener((command, tab) => {
@@ -87,11 +114,11 @@ chrome.commands.onCommand.addListener((command, tab) => {
   }
   if (command !== 'toggle-overlay') return
   if (tab?.id !== undefined) {
-    void toggleOverlay(tab.id)
+    toggleOverlay(tab.id)
     return
   }
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0]?.id
-    if (tabId !== undefined) void toggleOverlay(tabId)
+    if (tabId !== undefined) toggleOverlay(tabId)
   })
 })
