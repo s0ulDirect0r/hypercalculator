@@ -12,6 +12,7 @@ import {
   parseVector,
   tryEvaluate,
   displayExpression,
+  toggleSign,
 } from './mathEngine'
 
 const expectNumber = (value: unknown, expected: number) => {
@@ -64,6 +65,15 @@ describe('math engine expression handling', () => {
     expect(appendToken('-18', '^2')).toBe('(-18)^2')
     expectNumber(tryEvaluate(appendToken('-18', '^2'), 'rad'), 324)
     expect(appendToken('2*-18', '^2')).toBe('2*(-18)^2')
+  })
+
+  it('wraps sign-toggled negative values so later powers use the displayed operand', () => {
+    expect(toggleSign('18')).toBe('(-18)')
+    expect(toggleSign('2*18')).toBe('2*(-18)')
+    expect(toggleSign('(-18)')).toBe('18')
+    expect(toggleSign('2*(-18)')).toBe('2*18')
+    expect(toggleSign('1e6')).toBe('(-1e6)')
+    expectNumber(tryEvaluate(appendToken(toggleSign('18'), '^2'), 'rad'), 324)
   })
 
   it('wraps the current term when applying a root function', () => {

@@ -1007,13 +1007,19 @@ export const toggleSign = (expression: string) => {
     return '-'
   }
 
-  const match = expression.match(/(-?\d+\.?\d*)$/)
+  const numberPattern = String.raw`(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`
+  const parenthesizedNegativeMatch = expression.match(new RegExp(String.raw`\(-(${numberPattern})\)$`))
+  if (parenthesizedNegativeMatch?.index !== undefined) {
+    return `${expression.slice(0, parenthesizedNegativeMatch.index)}${parenthesizedNegativeMatch[1]}`
+  }
+
+  const match = expression.match(new RegExp(String.raw`(-?${numberPattern})$`))
   if (!match || match.index === undefined) {
     return `-(${expression})`
   }
 
   const value = match[1]
-  const nextValue = value.startsWith('-') ? value.slice(1) : `-${value}`
+  const nextValue = value.startsWith('-') ? value.slice(1) : `(-${value})`
   return `${expression.slice(0, match.index)}${nextValue}`
 }
 
