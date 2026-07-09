@@ -52,6 +52,43 @@ npm run package
 This builds the extension and writes `hypercalculator-v<version>.zip` (the
 version comes from `public/manifest.json`) — upload that archive to the store.
 
+### Publish with the Chrome Web Store API
+
+The API flow uses Google's Chrome Web Store API v2: refresh an OAuth access
+token, upload the ZIP package, then submit the item for publishing. Before
+publishing for the first time, fill out the Store listing and Privacy tabs in
+the Chrome Web Store Developer Dashboard. The v2 upload endpoint targets an
+existing store item, so create the item in the dashboard first if needed, then
+use that item ID as `CWS_EXTENSION_ID`.
+
+Create `.env.local` (or `.env` — copy `.env.example` to get started) or export
+these variables in your shell; shell variables win over `.env.local`, which
+wins over `.env`:
+
+```bash
+CWS_PUBLISHER_ID=...
+CWS_EXTENSION_ID=...
+CWS_CLIENT_ID=...
+CWS_CLIENT_SECRET=...
+CWS_REFRESH_TOKEN=...
+```
+
+Then use:
+
+```bash
+npm run cws:status
+npm run cws:upload
+npm run cws:submit
+npm run cws:publish
+```
+
+`npm run cws:publish` runs `npm run package`, uploads the resulting
+`hypercalculator-v<version>.zip`, and submits it for review. Add
+`-- --staged` to stage the release after approval, `-- --skip-review` to ask
+Google to skip review for eligible changes, or `-- --deploy-percentage 25` for
+an initial rollout percentage. To upload an exact archive without rebuilding,
+pass `-- --zip <path>` to `cws:upload` or `cws:publish`.
+
 ## Run locally
 
 ```bash

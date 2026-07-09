@@ -1071,7 +1071,7 @@ const getCurrentTermBounds = (expression: string) => {
   }
 
   const lastCharacter = expression[end - 1]
-  if (/[+\-*/,(]/.test(lastCharacter)) {
+  if (/[+\-*/^,(]/.test(lastCharacter)) {
     return { end, start: end }
   }
 
@@ -1166,7 +1166,19 @@ export const appendToken = (expression: string, token: string) => {
     }
 
     if (expressionEndsWithBinaryOperator(currentExpression) || lastCharacter === '^') {
-      return `${currentExpression.slice(0, -1)}${token}`
+      if (token === '-') {
+        return isUnaryMinus(currentExpression, currentExpression.length - 1)
+          ? currentExpression
+          : `${currentExpression}${token}`
+      }
+
+      // Replace the whole trailing operator run so a pending unary minus
+      // ('2^-', '7*-') swaps cleanly instead of leaving '2^*'-style pairs.
+      const trimmedExpression = currentExpression.replace(/[+\-*/^]+$/, '')
+      if (!trimmedExpression || /[(,]$/.test(trimmedExpression)) {
+        return currentExpression
+      }
+      return `${trimmedExpression}${token}`
     }
 
     if ((lastCharacter === '(' || lastCharacter === ',') && token !== '-') {

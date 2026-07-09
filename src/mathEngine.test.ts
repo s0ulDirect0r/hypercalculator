@@ -59,9 +59,19 @@ describe('math engine expression handling', () => {
   it('keeps keypad token appends predictable after edits', () => {
     expect(appendToken('0', '7')).toBe('7')
     expect(appendToken('7+', '*')).toBe('7*')
+    expect(appendToken('-2045/', '-')).toBe('-2045/-')
+    expect(appendToken('-2045/-', '1')).toBe('-2045/-1')
     expect(appendToken('7+', '.')).toBe('7+0.')
     expect(appendToken('7.2', '.')).toBe('7.2')
     expect(appendToken('x', '^2')).toBe('x^2')
+    expect(appendToken('2^', '-')).toBe('2^-')
+    expect(appendToken('2^-', '-')).toBe('2^-')
+    expect(appendToken('2^-', '*')).toBe('2*')
+    expect(appendToken('7*-', '/')).toBe('7/')
+    expect(appendToken('7+-', '+')).toBe('7+')
+    expect(appendToken('7+-', '-')).toBe('7+-')
+    expect(appendToken('7-', '-')).toBe('7--')
+    expectNumber(tryEvaluate(appendToken('7-', '-') + '5', 'rad'), 12)
     expect(appendToken('-18', '^2')).toBe('(-18)^2')
     expectNumber(tryEvaluate(appendToken('-18', '^2'), 'rad'), 324)
     expect(appendToken('2*-18', '^2')).toBe('2*(-18)^2')
@@ -86,6 +96,8 @@ describe('math engine expression handling', () => {
       encloseExpressionInFunction('9 + 81', 'nthRoot', { closeExpression: false, suffix: ', ' }),
     ).toBe('9 + nthRoot(81, ')
     expect(encloseExpressionInFunction('0', 'sqrt')).toBe('sqrt(')
+    expect(encloseExpressionInFunction('2^', 'sqrt')).toBe('2^sqrt(')
+    expect(encloseExpressionInFunction('9+', 'sqrt')).toBe('9+sqrt(')
   })
 })
 

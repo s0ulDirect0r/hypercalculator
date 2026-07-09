@@ -3,12 +3,11 @@
 // *contents* of dist/ rather than the dist/ folder itself. The zip name
 // tracks the manifest version, which is the version the store publishes.
 import { execSync } from 'node:child_process'
-import { readFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 
-const manifest = JSON.parse(
-  readFileSync(new URL('../public/manifest.json', import.meta.url), 'utf8'),
-)
-const zipName = `hypercalculator-v${manifest.version}.zip`
+import { zipFileName } from './zip-name.mjs'
+
+const zipName = zipFileName()
 
 execSync('npm run build', { stdio: 'inherit' })
 
