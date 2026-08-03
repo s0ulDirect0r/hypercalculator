@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hypercalculator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minimum_chrome_version": "114",
   "description": "A visual calculator for math: graphs, geometry, vectors, complex numbers, and 3D — on any page.",
   "icons": {
