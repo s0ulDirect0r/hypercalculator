@@ -2667,13 +2667,27 @@ function App() {
         ',': ',',
         '(': '(',
         ')': ')',
-        i: 'i',
-        x: 'x',
-        y: 'y',
       }
 
       if (/\d/.test(event.key)) {
         handleInput(event.key)
+        return
+      }
+
+      // Letters are typed as words — `sin`, `cos`, `log` — not as single-key
+      // tokens, so route them into the entry line and let it accumulate them.
+      // Matching them against a per-key map drops every letter it lacks, which
+      // turned `sin(x)*cos(y)` into `i(x)*(y)`.
+      if (/^[a-z]$/i.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault()
+        setEntryLineFocused(true)
+        setExpression((current) => {
+          // A letter never continues a result, so a finished evaluation starts over.
+          const base = lastActionWasEvaluation ? '0' : current
+          return base === '0' ? event.key : base + event.key
+        })
+        setLastActionWasEvaluation(false)
+        entryInputRef.current?.focus()
         return
       }
 
